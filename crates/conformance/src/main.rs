@@ -76,7 +76,7 @@ fn transcripts_cmd(dir: PathBuf) -> Result<bool, String> {
     let mut ok = true;
     for f in files {
         let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
-        let result = transcript::parse(&text).and_then(|lines| transcript::replay(&lines, transcript::reference_app(&lines, None).as_mut()));
+        let result = transcript::parse(&text).and_then(|lines| transcript::replay_reference(&lines, None));
         match result {
             Ok(()) => println!("pass  {}", f.display()),
             Err(e) => {

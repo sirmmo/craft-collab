@@ -410,6 +410,92 @@ pub fn delete_lines(txn: &mut TransactionMut, sheet_id: &str, rows: bool, at: us
     }
 }
 
+/// GridCraft schema 1 for the reference app.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GridCraft;
+
+fn active_sheet_id<T: ReadTxn>(txn: &T, active: usize, params: &Json) -> Result<String, String> {
+    let ids = sheet_ids(txn);
+    let idx = match params.get("sheet") {
+        Some(Json::Number(n)) => n.as_u64().map(|n| n as usize).ok_or("bad `sheet`")?,
+        Some(Json::String(name)) => {
+            let model = read(txn)?;
+            model.sheets.iter().position(|s| s.name.eq_ignore_ascii_case(name)).ok_or_else(|| format!("no sheet {name}"))?
+        }
+        _ => active,
+    };
+    ids.get(idx).cloned().ok_or_else(|| "no such sheet".to_string())
+}
+
+impl crate::schema::Schema for GridCraft {
+    const APP: &'static str = APP;
+    const SCHEMA: i64 = SCHEMA;
+    type Model = Model;
+    /// The active sheet's index.
+    type View = usize;
+
+    fn blank() -> Model {
+        Model::sheet("", "Sheet1", &[])
+    }
+    fn seed(txn: &mut TransactionMut, model: &Model, ids: &mut Ids) {
+        seed(txn, model, ids)
+    }
+    fn read<T: ReadTxn>(txn: &T) -> Result<Model, String> {
+        read(txn)
+    }
+    fn check_meta<T: ReadTxn>(txn: &T) -> Result<(), String> {
+        check_meta(txn)
+    }
+    fn to_json(m: &Model) -> Json {
+        m.to_json()
+    }
+    fn from_json(j: &Json) -> Result<Model, String> {
+        Model::from_json(j)
+    }
+
+    /// `sheet.activate {sheet}`.
+    fn view_command<T: ReadTxn>(txn: &T, view: &mut usize, command: &str, params: &Json) -> Option<Result<(), String>> {
+        if command != "sheet.activate" {
+            return None;
+        }
+        Some(active_sheet_id(txn, *view, params).map(|id| {
+            *view = sheet_ids(txn).iter().position(|s| *s == id).unwrap_or(0);
+        }))
+    }
+
+    /// `cell.set`, `home.insertRows`, `home.insertColumns`, `home.deleteRows`,
+    /// `home.deleteColumns`, `home.insertSheet`, `sheet.rename`.
+    fn edit(t: &mut TransactionMut, view: &mut usize, command: &str, params: &Json, ids: &mut Ids) -> Result<(), String> {
+        let text = |k: &str| params.get(k).and_then(Json::as_str).map(str::to_string);
+        let sheet = if command == "home.insertSheet" { String::new() } else { active_sheet_id(t, *view, params)? };
+        match command {
+            "cell.set" => {
+                let (r, c) = parse_a1(&text("cell").ok_or("cell.set needs `cell`")?).ok_or("bad `cell`")?;
+                set_cell(t, &sheet, r, c, &text("input").unwrap_or_default());
+            }
+            "home.insertRows" | "home.insertColumns" | "home.deleteRows" | "home.deleteColumns" => {
+                let rows = command.ends_with("Rows");
+                let span = text(if rows { "rows" } else { "cols" }).ok_or("needs `rows` or `cols`")?;
+                let (at, count) = parse_span(&span, rows).ok_or("bad span")?;
+                if command.contains("insert") {
+                    insert_lines(t, &sheet, rows, at, count, ids);
+                } else {
+                    delete_lines(t, &sheet, rows, at, count);
+                }
+            }
+            "home.insertSheet" => {
+                let n = sheet_ids(t).len();
+                let name = text("name").unwrap_or_else(|| format!("Sheet{}", n + 1));
+                let before = params.get("before").and_then(Json::as_u64).map(|b| b as usize);
+                add_sheet(t, &name, before, ids);
+            }
+            "sheet.rename" => rename_sheet(t, &sheet, &text("name").ok_or("sheet.rename needs `name`")?),
+            other => return Err(format!("the reference app can't run {other}")),
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

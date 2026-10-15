@@ -1,0 +1,39 @@
+{"t":"meta","name":"wordcraft-1-share","app":"wordcraft","schema":1,"format":1,"description":"Sharing the open document: seeding, answering collab/snapshot and sync1, local edits as one update each (bold, typing over a selection, Enter, typing), and a concurrent remote edit (the title and a paragraph) merging in."}
+{"t":"note","text":"Edits before joining a room aren't sent anywhere."}
+{"t":"run","command":"text.insert","params":{"text":"Agenda"}}
+{"t":"run","command":"text.newParagraph","params":{}}
+{"t":"run","command":"text.insert","params":{"text":"Budget review"}}
+{"t":"quiet"}
+{"t":"model","model":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget review","runs":[{"text":"Budget review"}]}]}}
+{"t":"run","command":"collab.join","params":{"plugin":"org.craft.conformance","room":"conformance:wshare","mode":"share","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"role":"edit"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/joined","params":{"room":"conformance:wshare","clientId":"$clientId","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"app":"wordcraft","schema":1,"encrypted":false}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:wshare","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:wshare","state":"connecting","peers":[]}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:wshare","state":"online","peers":[{"clientId":1001,"user":{"id":"u-peer","name":"Peer","color":"#D8513B"}}]}}}
+{"t":"note","text":"Every time the transport reports online after another state, the app sends sync1."}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:wshare","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","id":1,"method":"collab/snapshot","params":{"room":"conformance:wshare"}}}
+{"t":"out","msg":{"jsonrpc":"2.0","id":1,"result":{"update":"$b64"}},"decodesTo":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget review","runs":[{"text":"Budget review"}]}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:wshare","stateVector":"AA==","from":4004}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync2","params":{"room":"conformance:wshare","update":"$b64","to":4004}},"decodesTo":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget review","runs":[{"text":"Budget review"}]}]}}
+{"t":"run","command":"select.text","params":{"text":"Budget"}}
+{"t":"run","command":"format.bold","params":{"value":true}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:wshare","update":"$b64"}},"decodesTo":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget review","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" review"}]}]}}
+{"t":"model","model":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget review","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" review"}]}]}}
+{"t":"run","command":"select.text","params":{"text":"review"}}
+{"t":"run","command":"text.insert","params":{"text":"plan"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:wshare","update":"$b64"}},"decodesTo":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]}]}}
+{"t":"model","model":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]}]}}
+{"t":"run","command":"text.newParagraph","params":{}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:wshare","update":"$b64"}},"decodesTo":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"","runs":[]}]}}
+{"t":"model","model":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"","runs":[]}]}}
+{"t":"run","command":"text.insert","params":{"text":"Close"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:wshare","update":"$b64"}},"decodesTo":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"Close","runs":[{"text":"Close"}]}]}}
+{"t":"model","model":{"title":"","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"Close","runs":[{"text":"Close"}]}]}}
+{"t":"note","text":"A peer that started from nothing sets the title and adds a paragraph, concurrently: both merge (its client id is higher, so its title wins and its paragraph comes last)."}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:wshare","update":"AQT+////////DwAoAQRtZXRhBXRpdGxlAXcLVGVhbSBhZ2VuZGEHAQRib2R5AwFwBwD+////////DwEGBAD+////////DwINRnJvbSB0aGUgcGVlcgA=","from":9007199254740990}}}
+{"t":"model","model":{"title":"Team agenda","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"Close","runs":[{"text":"Close"}]},{"text":"From the peer","runs":[{"text":"From the peer"}]}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","id":2,"method":"collab/snapshot","params":{"room":"conformance:wshare"}}}
+{"t":"out","msg":{"jsonrpc":"2.0","id":2,"result":{"update":"$b64"}},"decodesTo":{"title":"Team agenda","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"Close","runs":[{"text":"Close"}]},{"text":"From the peer","runs":[{"text":"From the peer"}]}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/leave","params":{"room":"conformance:wshare"}}}
+{"t":"model","model":{"title":"Team agenda","body":[{"text":"Agenda","runs":[{"text":"Agenda"}]},{"text":"Budget plan","runs":[{"text":"Budget","bold":true,"boldCs":true},{"text":" plan"}]},{"text":"Close","runs":[{"text":"Close"}]},{"text":"From the peer","runs":[{"text":"From the peer"}]}]}}

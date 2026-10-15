@@ -12,19 +12,7 @@ use crate::awareness::{self, Entry};
 use crate::crypto;
 use crate::deckcraft::{self, Model, ShapeModel, SlideModel};
 use crate::gridcraft::Ids;
-use crate::transcript::PLUGIN;
-
-const PEER: u64 = 1001;
-/// A client id above any app's, so the peer's concurrent writes to the same map key win.
-const HIGH_PEER: u64 = (1 << 53) - 2;
-
-fn app_user() -> Json {
-    json!({"id": "u-app", "name": "App Under Test", "color": "#3B7DD8"})
-}
-
-fn peer_user() -> Json {
-    json!({"id": "u-peer", "name": "Peer", "color": "#D8513B"})
-}
+use crate::transcript::{HIGH_PEER, PEER, PLUGIN, app_user, peer_user};
 
 /// Another person's document, with a fixed client id.
 struct Peer {

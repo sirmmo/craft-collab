@@ -1,6 +1,7 @@
-//! The reference app: what a craft app does in a room (protocol 2, section 6), for GridCraft
-//! schema 1, with the document kept in a Yjs doc. The transcripts are checked against it, and
-//! the transport checks use it as the simulated apps on both ends.
+//! The reference app: what a craft app does in a room (protocol 2, section 6), for any schema
+//! ([`Schema`]: GridCraft 1, DeckCraft 1, WordCraft 1), with the document kept in a Yjs doc. The
+//! transcripts are checked against it, and the transport checks use it as the simulated apps on
+//! both ends.
 
 use std::collections::BTreeMap;
 
@@ -13,13 +14,14 @@ use yrs::{Doc, ReadTxn, StateVector, Transact, TransactionMut, Update};
 
 use crate::awareness::{self, Entry};
 use crate::crypto;
-use crate::gridcraft::{self, Ids, Model};
+use crate::gridcraft::{GridCraft, Ids};
+use crate::schema::Schema;
 
 /// After this many messages that fail to decrypt, the app says "Wrong room key?".
 pub const WRONG_KEY_AFTER: u32 = 10;
 
-/// A simulated app.
-pub struct RefApp {
+/// A simulated app (GridCraft unless said otherwise).
+pub struct RefApp<S: Schema = GridCraft> {
     pub doc: Doc,
     pub client_id: u64,
     pub room: Option<String>,
@@ -37,13 +39,14 @@ pub struct RefApp {
     /// Plaintext updates this app sent (sync2, update, snapshot answers).
     pub sent: Vec<Vec<u8>>,
     /// The model at each snapshot answer.
-    pub snapshot_models: Vec<Model>,
+    pub snapshot_models: Vec<S::Model>,
     /// Updates applied from others.
     pub applied: u32,
+    /// The view: active sheet, selection.
+    pub view: S::View,
     ids: Ids,
     nonces: Ids,
     awareness_clock: u64,
-    active_sheet: usize,
 }
 
 fn client_ids(seed: u64) -> u64 {
@@ -51,14 +54,14 @@ fn client_ids(seed: u64) -> u64 {
     (i.bits() & ((1 << 53) - 1)).max(1)
 }
 
-impl RefApp {
+impl<S: Schema> RefApp<S> {
     /// A new app with an empty document. `seed` makes its client id, row ids and nonces
     /// deterministic; `None` makes them random.
-    pub fn new(seed: Option<u64>) -> RefApp {
+    pub fn new(seed: Option<u64>) -> RefApp<S> {
         let seed = seed.unwrap_or_else(craft_collab_kit::ids::random_u64);
         let client_id = client_ids(seed);
         let mut app = RefApp {
-            doc: Doc::with_client_id(client_id),
+            doc: S::new_doc(client_id),
             client_id,
             room: None,
             key: None,
@@ -71,25 +74,27 @@ impl RefApp {
             sent: Vec::new(),
             snapshot_models: Vec::new(),
             applied: 0,
+            view: S::View::default(),
             ids: Ids::seeded(seed ^ 0x5151),
             nonces: Ids::seeded(seed ^ 0xA0A0),
             awareness_clock: 0,
-            active_sheet: 0,
         };
-        // A new document has one empty sheet, as in the app.
-        app.load(&Model::sheet("", "Sheet1", &[]));
+        // A new document, as in the app (GridCraft: one empty sheet; DeckCraft: one empty slide;
+        // WordCraft: one empty paragraph).
+        app.load(&S::blank());
         app
     }
 
     /// Starts from a model (as if it had been opened from a file), replacing the document.
-    pub fn load(&mut self, model: &Model) {
-        self.doc = Doc::with_client_id(self.client_id);
+    pub fn load(&mut self, model: &S::Model) {
+        self.doc = S::new_doc(self.client_id);
+        self.view = S::View::default();
         let mut t = self.doc.transact_mut_with("seed");
-        gridcraft::seed(&mut t, model, &mut self.ids);
+        S::seed(&mut t, model, &mut self.ids);
     }
 
-    pub fn model(&self) -> Result<Model, String> {
-        gridcraft::read(&self.doc.transact())
+    pub fn model(&self) -> Result<S::Model, String> {
+        S::read(&self.doc.transact())
     }
 
     fn nonce(&mut self) -> [u8; 12] {
@@ -142,7 +147,7 @@ impl RefApp {
     pub fn join(&mut self, join: &Json) -> Result<Vec<Json>, String> {
         let room = join.get("room").and_then(Json::as_str).ok_or("a join needs `room`")?.to_string();
         if self.room.is_some() {
-            return Err("this document is already in a room".into());
+            return Err(format!("this {} is already in a room", S::DOCUMENT));
         }
         let key = match join.get("key").and_then(Json::as_str) {
             Some(k) => Some(<[u8; 32]>::try_from(b64::decode(k).ok_or("the key isn't base64")?.as_slice()).map_err(|_| "the key isn't 32 bytes")?),
@@ -152,19 +157,21 @@ impl RefApp {
         // A new client id per join (section 3), and for `share` the seed in one transaction.
         let model = self.model().unwrap_or_default();
         self.client_id = client_ids(self.ids.bits());
-        self.doc = Doc::with_client_id(self.client_id);
-        if mode == "share" {
+        let old = std::mem::replace(&mut self.doc, S::new_doc(self.client_id));
+        let share = mode == "share";
+        if share {
             let mut t = self.doc.transact_mut_with("seed");
-            gridcraft::seed(&mut t, &model, &mut self.ids);
+            S::seed(&mut t, &model, &mut self.ids);
         } else {
             self.joining = true;
         }
+        self.view = S::rejoin_view(&self.view, &old, &self.doc, share);
         self.room = Some(room.clone());
         self.key = key;
         self.user = join.get("user").cloned().unwrap_or(Json::Null);
         self.state = "connecting".into();
         let joined = json!({"jsonrpc": "2.0", "method": "collab/joined", "params": {
-            "room": room, "clientId": self.client_id, "user": self.user, "app": gridcraft::APP, "schema": gridcraft::SCHEMA, "encrypted": self.key.is_some()
+            "room": room, "clientId": self.client_id, "user": self.user, "app": S::APP, "schema": S::SCHEMA, "encrypted": self.key.is_some()
         }});
         Ok(vec![joined, self.sync1()])
     }
@@ -181,7 +188,7 @@ impl RefApp {
             let theirs = Update::decode_v1(plain).map_err(|e| e.to_string())?;
             t.apply_update(theirs).map_err(|e| e.to_string())?;
         }
-        gridcraft::check_meta(&probe.transact())?;
+        S::check_meta(&probe.transact())?;
         let mut t = self.doc.transact_mut_with("remote");
         t.apply_update(update).map_err(|e| e.to_string())?;
         drop(t);
@@ -287,67 +294,32 @@ impl RefApp {
         out
     }
 
-    fn active_sheet_id(&self, params: &Json) -> Result<String, String> {
-        let t = self.doc.transact();
-        let ids = gridcraft::sheet_ids(&t);
-        let idx = match params.get("sheet") {
-            Some(Json::Number(n)) => n.as_u64().map(|n| n as usize).ok_or("bad `sheet`")?,
-            Some(Json::String(name)) => {
-                let model = gridcraft::read(&t)?;
-                model.sheets.iter().position(|s| s.name.eq_ignore_ascii_case(name)).ok_or_else(|| format!("no sheet {name}"))?
-            }
-            _ => self.active_sheet,
-        };
-        ids.get(idx).cloned().ok_or_else(|| "no such sheet".to_string())
-    }
-
-    /// Runs one of the app's commands (`cell.set`, `home.insertRows`, `home.insertColumns`,
-    /// `home.deleteRows`, `home.deleteColumns`, `home.insertSheet`, `sheet.rename`,
-    /// `sheet.activate`) as one transaction; in a room, the `collab/update` it sends.
+    /// Runs one of the app's commands as one transaction (the schema's
+    /// [`Schema::view_command`]s and [`Schema::edit`]s, and `collab.join`); in a room, the
+    /// `collab/update` it sends.
     pub fn run(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String> {
         if command == "collab.join" {
             return self.join(params);
         }
-        if command == "sheet.activate" {
-            let id = self.active_sheet_id(params)?;
-            self.active_sheet = gridcraft::sheet_ids(&self.doc.transact()).iter().position(|s| *s == id).unwrap_or(0);
-            return Ok(Vec::new());
+        let viewed = {
+            let t = self.doc.transact();
+            S::view_command(&t, &mut self.view, command, params)
+        };
+        if let Some(r) = viewed {
+            return r.map(|_| Vec::new());
         }
         if self.joining {
-            return Err("the document is read-only until the room's state arrives".into());
+            return Err(format!("the {} is read-only until the room's state arrives", S::DOCUMENT));
         }
-        let text = |k: &str| params.get(k).and_then(Json::as_str).map(str::to_string);
         let mut ids = self.ids.clone();
-        let sheet = if command == "home.insertSheet" { String::new() } else { self.active_sheet_id(params)? };
+        let mut view = self.view.clone();
         let update = {
             let mut t: TransactionMut = self.doc.transact_mut_with("local");
-            match command {
-                "cell.set" => {
-                    let (r, c) = gridcraft::parse_a1(&text("cell").ok_or("cell.set needs `cell`")?).ok_or("bad `cell`")?;
-                    gridcraft::set_cell(&mut t, &sheet, r, c, &text("input").unwrap_or_default());
-                }
-                "home.insertRows" | "home.insertColumns" | "home.deleteRows" | "home.deleteColumns" => {
-                    let rows = command.ends_with("Rows");
-                    let span = text(if rows { "rows" } else { "cols" }).ok_or("needs `rows` or `cols`")?;
-                    let (at, count) = gridcraft::parse_span(&span, rows).ok_or("bad span")?;
-                    if command.contains("insert") {
-                        gridcraft::insert_lines(&mut t, &sheet, rows, at, count, &mut ids);
-                    } else {
-                        gridcraft::delete_lines(&mut t, &sheet, rows, at, count);
-                    }
-                }
-                "home.insertSheet" => {
-                    let n = gridcraft::sheet_ids(&t).len();
-                    let name = text("name").unwrap_or_else(|| format!("Sheet{}", n + 1));
-                    let before = params.get("before").and_then(Json::as_u64).map(|b| b as usize);
-                    gridcraft::add_sheet(&mut t, &name, before, &mut ids);
-                }
-                "sheet.rename" => gridcraft::rename_sheet(&mut t, &sheet, &text("name").ok_or("sheet.rename needs `name`")?),
-                other => return Err(format!("the reference app can't run {other}")),
-            }
+            S::edit(&mut t, &mut view, command, params, &mut ids)?;
             t.encode_update_v1()
         };
         self.ids = ids;
+        self.view = view;
         if self.room.is_none() || update.len() <= 2 {
             return Ok(Vec::new());
         }
@@ -367,23 +339,29 @@ impl RefApp {
     }
 
     /// The model of a peer that has every update in `updates` (plaintext).
-    pub fn model_of(updates: &[Vec<u8>]) -> Result<Model, String> {
-        let doc = Doc::new();
-        let mut t = doc.transact_mut();
-        for u in updates {
-            let u = Update::decode_v1(u).map_err(|e| format!("not a Yjs update: {e}"))?;
-            t.apply_update(u).map_err(|e| e.to_string())?;
-        }
-        gridcraft::read(&t)
+    /// Bytes that aren't updates (ciphertext, say) are an error; `yrs` can panic on some, which
+    /// counts as one too.
+    pub fn model_of(updates: &[Vec<u8>]) -> Result<S::Model, String> {
+        std::panic::catch_unwind(|| {
+            let doc = S::new_doc(1);
+            let mut t = doc.transact_mut();
+            for u in updates {
+                let u = Update::decode_v1(u).map_err(|e| format!("not a Yjs update: {e}"))?;
+                t.apply_update(u).map_err(|e| e.to_string())?;
+            }
+            S::read(&t)
+        })
+        .unwrap_or_else(|_| Err("not a Yjs update (yrs panicked)".into()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gridcraft::Model;
 
     /// Delivers every message between two apps until they're quiet.
-    fn exchange(a: &mut RefApp, b: &mut RefApp, mut to_b: Vec<Json>, mut to_a: Vec<Json>) {
+    fn exchange<S: Schema>(a: &mut RefApp<S>, b: &mut RefApp<S>, mut to_b: Vec<Json>, mut to_a: Vec<Json>) {
         for _ in 0..20 {
             if to_a.is_empty() && to_b.is_empty() {
                 return;
@@ -411,9 +389,9 @@ mod tests {
     #[test]
     fn two_apps_converge_encrypted() {
         let key = b64::encode(&[5u8; 32]);
-        let mut a = RefApp::new(Some(1));
+        let mut a: RefApp = RefApp::new(Some(1));
         a.load(&Model::sheet("T", "Sheet1", &[("A1", "x")]));
-        let mut b = RefApp::new(Some(2));
+        let mut b: RefApp = RefApp::new(Some(2));
         let ja = a.join(&json!({"room": "r", "mode": "share", "user": {"id": "a", "name": "A", "color": "#000000"}, "key": key})).unwrap();
         let jb = b.join(&json!({"room": "r", "mode": "join", "user": {"id": "b", "name": "B", "color": "#000000"}, "key": key})).unwrap();
         assert!(b.joining);

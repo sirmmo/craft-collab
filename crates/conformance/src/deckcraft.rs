@@ -12,8 +12,8 @@ use std::collections::HashSet;
 
 use serde_json::{Value as Json, json};
 use yrs::{
-    Any, Array, ArrayPrelim, ArrayRef, Doc, GetString, Map, MapPrelim, MapRef, OffsetKind, Options, Out, ReadTxn, Text, TextPrelim, TextRef, TransactionMut,
-    WriteTxn,
+    Any, Array, ArrayPrelim, ArrayRef, Doc, GetString, Map, MapPrelim, MapRef, OffsetKind, Options, Out, ReadTxn, Text, TextPrelim, TextRef, Transact,
+    TransactionMut, WriteTxn,
 };
 
 use crate::gridcraft::Ids;
@@ -383,6 +383,204 @@ pub fn set_notes(txn: &mut TransactionMut, slide: &str, text: &str) {
     }
     if !text.is_empty() {
         insert_plain(&t, txn, 0, &marked(text));
+    }
+}
+
+/// Text being edited: the slide, the shape (`None`: the notes), and the selection as
+/// `(paragraph, char)` positions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Editing {
+    pub slide: String,
+    pub shape: Option<String>,
+    pub anchor: (usize, usize),
+    pub caret: (usize, usize),
+}
+
+/// DeckCraft's view: the current slide (index), the selected shapes on it, the text being edited.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct View {
+    pub current: usize,
+    pub selected: Vec<String>,
+    pub editing: Option<Editing>,
+}
+
+/// DeckCraft schema 1 for the reference app. Its commands are DeckCraft's, with the same
+/// parameters, so the app replays the transcripts with its own engine.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DeckCraft;
+
+/// `(paragraph, char)` from JSON `[p, c]`.
+fn pos(v: Option<&Json>) -> Option<(usize, usize)> {
+    let a = v?.as_array()?;
+    Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize))
+}
+
+/// The `ids` parameter (numbers) as ids.
+fn ids_param(params: &Json) -> Option<Vec<String>> {
+    Some(params.get("ids")?.as_array()?.iter().filter_map(|v| v.as_u64().map(|n| id_str(n as u32))).collect())
+}
+
+/// The end of a text: `(last paragraph, its length)`.
+fn end_of<T: ReadTxn>(txn: &T, slide: &str, shape: Option<&str>) -> (usize, usize) {
+    let Some(t) = text_ref(txn, slide, shape) else { return (0, 0) };
+    let s = t.get_string(txn);
+    let s = s.strip_suffix('\n').unwrap_or(&s);
+    let paras: Vec<&str> = s.split('\n').collect();
+    (paras.len().saturating_sub(1), paras.last().map(|p| p.chars().count()).unwrap_or(0))
+}
+
+fn current_slide<T: ReadTxn>(txn: &T, view: &View) -> Result<String, String> {
+    slide_ids(txn).get(view.current).cloned().ok_or_else(|| "no current slide".into())
+}
+
+impl crate::schema::Schema for DeckCraft {
+    const APP: &'static str = APP;
+    const SCHEMA: i64 = SCHEMA;
+    const DOCUMENT: &'static str = "presentation";
+    type Model = Model;
+    type View = View;
+
+    fn new_doc(client_id: u64) -> Doc {
+        new_doc(client_id)
+    }
+    /// One empty slide (DeckCraft's own new presentation has a title slide; the transcripts
+    /// replace it before they look).
+    fn blank() -> Model {
+        Model { title: String::new(), slides: vec![Default::default()] }
+    }
+    fn seed(txn: &mut TransactionMut, model: &Model, ids: &mut Ids) {
+        seed(txn, model, ids)
+    }
+    fn read<T: ReadTxn>(txn: &T) -> Result<Model, String> {
+        read(txn)
+    }
+    fn check_meta<T: ReadTxn>(txn: &T) -> Result<(), String> {
+        check_meta(txn)
+    }
+    fn to_json(m: &Model) -> Json {
+        m.to_json()
+    }
+    fn from_json(j: &Json) -> Result<Model, String> {
+        Model::from_json(j)
+    }
+
+    /// Sharing keeps the current slide and the selection (by position: the shared document has
+    /// new ids); joining starts over.
+    fn rejoin_view(view: &View, old: &Doc, new: &Doc, share: bool) -> View {
+        if !share {
+            return View::default();
+        }
+        let positions: Vec<usize> = {
+            let txn = old.transact();
+            let shapes = slide_ids(&txn).get(view.current).map(|s| shape_ids(&txn, s)).unwrap_or_default();
+            view.selected.iter().filter_map(|id| shapes.iter().position(|x| x == id)).collect()
+        };
+        let txn = new.transact();
+        let shapes = slide_ids(&txn).get(view.current).map(|s| shape_ids(&txn, s)).unwrap_or_default();
+        View { current: view.current, selected: positions.into_iter().filter_map(|i| shapes.get(i).cloned()).collect(), editing: None }
+    }
+
+    /// `slide.go {index}`, `edit.select {ids}`, `text.edit {id?, at?}`,
+    /// `text.select {anchor, caret}`.
+    fn view_command<T: ReadTxn>(txn: &T, view: &mut View, command: &str, params: &Json) -> Option<Result<(), String>> {
+        let r = match command {
+            "slide.go" => (|| {
+                let n = slide_ids(txn).len();
+                view.current = params.get("index").and_then(Json::as_u64).map(|i| i as usize).filter(|i| *i < n).ok_or("no such slide")?;
+                view.selected.clear();
+                view.editing = None;
+                Ok(())
+            })(),
+            "edit.select" => (|| {
+                view.selected = ids_param(params).ok_or("edit.select needs `ids`")?;
+                view.editing = None;
+                Ok(())
+            })(),
+            "text.edit" => (|| {
+                let slide = current_slide(txn, view)?;
+                let shape = match params.get("id").and_then(Json::as_u64) {
+                    Some(n) => id_str(n as u32),
+                    None => view.selected.first().cloned().ok_or("select a shape with text")?,
+                };
+                let at = pos(params.get("at")).unwrap_or_else(|| end_of(txn, &slide, Some(&shape)));
+                view.selected = vec![shape.clone()];
+                view.editing = Some(Editing { slide, shape: Some(shape), anchor: at, caret: at });
+                Ok(())
+            })(),
+            "text.select" => (|| {
+                let e = view.editing.as_mut().ok_or("not editing text")?;
+                e.anchor = pos(params.get("anchor")).ok_or("text.select needs `anchor`")?;
+                e.caret = pos(params.get("caret")).ok_or("text.select needs `caret`")?;
+                Ok(())
+            })(),
+            _ => return None,
+        };
+        Some(r)
+    }
+
+    /// `slide.new {layout?, at?}`, `slide.delete {index?}`, `shape.insert {preset, rect, text?}`,
+    /// `shape.setBounds {ids?, x, y, w, h}`, `text.insert {text}`, `slide.notes {text, index?}`.
+    fn edit(t: &mut TransactionMut, view: &mut View, command: &str, params: &Json, ids: &mut Ids) -> Result<(), String> {
+        let text = |k: &str| params.get(k).and_then(Json::as_str).map(str::to_string);
+        match command {
+            "slide.new" => {
+                let n = slide_ids(t).len();
+                let at = params.get("at").and_then(Json::as_u64).map(|a| a as usize).unwrap_or(if n == 0 { 0 } else { view.current + 1 }).min(n);
+                add_slide(t, at, ids);
+                *view = View { current: at, ..View::default() };
+            }
+            "slide.delete" => {
+                let all = slide_ids(t);
+                let i = params.get("index").and_then(Json::as_u64).map(|i| i as usize).unwrap_or(view.current);
+                let id = all.get(i).ok_or("no such slide")?;
+                delete_slide(t, id);
+                *view = View { current: i.min(all.len().saturating_sub(2)), ..View::default() };
+            }
+            "shape.insert" => {
+                let r = params.get("rect").and_then(Json::as_array).ok_or("shape.insert needs `rect`")?;
+                let n = |i: usize| r.get(i).and_then(Json::as_f64).ok_or("`rect` is [x, y, w, h]");
+                let rect = [n(0)?, n(1)?, n(2)?, n(3)?];
+                let slide = current_slide(t, view)?;
+                let id = add_shape(t, &slide, rect, text("text").as_deref(), ids);
+                view.selected = vec![id];
+                view.editing = None;
+            }
+            "shape.setBounds" => {
+                let slide = current_slide(t, view)?;
+                let n = |k: &str| params.get(k).and_then(Json::as_f64).ok_or(format!("shape.setBounds needs `{k}`"));
+                let rect = [n("x")?, n("y")?, n("w")?, n("h")?];
+                for id in ids_param(params).unwrap_or_else(|| view.selected.clone()) {
+                    set_rect(t, &slide, &id, rect);
+                }
+            }
+            "text.insert" => {
+                let what = text("text").ok_or("text.insert needs `text`")?;
+                let e = view.editing.clone().ok_or("not editing text")?;
+                let (a, b) = if e.anchor <= e.caret { (e.anchor, e.caret) } else { (e.caret, e.anchor) };
+                if a != b
+                    && let Some(tr) = text_ref(t, &e.slide, e.shape.as_deref())
+                {
+                    let (x, y) = (offset(t, &tr, a), offset(t, &tr, b));
+                    delete_text(t, &e.slide, e.shape.as_deref(), a, y.saturating_sub(x));
+                }
+                type_text(t, &e.slide, e.shape.as_deref(), a, &what);
+                let lines: Vec<&str> = what.split('\n').collect();
+                let caret = if lines.len() > 1 {
+                    (a.0 + lines.len() - 1, lines.last().map(|l| l.chars().count()).unwrap_or(0))
+                } else {
+                    (a.0, a.1 + what.chars().count())
+                };
+                view.editing = Some(Editing { anchor: caret, caret, ..e });
+            }
+            "slide.notes" => {
+                let all = slide_ids(t);
+                let i = params.get("index").and_then(Json::as_u64).map(|i| i as usize).unwrap_or(view.current);
+                let id = all.get(i).ok_or("no such slide")?;
+                set_notes(t, id, &text("text").unwrap_or_default());
+            }
+            other => return Err(format!("the reference app can't run {other}")),
+        }
+        Ok(())
     }
 }
 
