@@ -13,8 +13,82 @@ use yrs::{Doc, Map, ReadTxn, StateVector, Transact, TransactionMut, WriteTxn};
 
 use crate::awareness::{self, Entry};
 use crate::crypto;
+use crate::deckref::DeckRefApp;
 use crate::gridcraft::{self, Ids, Model};
 use crate::refapp::RefApp;
+
+/// An app a transcript is replayed against: the reference apps here, or an app's own engine in
+/// its tests (`run` → its commands, `receive` → its collab inbox, `model_json` → its document as
+/// the transcript's schema describes it).
+pub trait App {
+    /// Runs one of the app's commands; the messages it sent.
+    fn run(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String>;
+    /// Handles one message from the transport; the messages it sent.
+    fn receive(&mut self, msg: &Json) -> Vec<Json>;
+    /// The document as a transcript model.
+    fn model_json(&self) -> Result<Json, String>;
+    /// What it showed in its status bar.
+    fn notices(&self) -> Vec<String>;
+}
+
+impl App for RefApp {
+    fn run(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String> {
+        RefApp::run(self, command, params)
+    }
+    fn receive(&mut self, msg: &Json) -> Vec<Json> {
+        RefApp::receive(self, msg)
+    }
+    fn model_json(&self) -> Result<Json, String> {
+        self.model().map(|m| m.to_json())
+    }
+    fn notices(&self) -> Vec<String> {
+        self.notices.clone()
+    }
+}
+
+impl App for DeckRefApp {
+    fn run(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String> {
+        DeckRefApp::run(self, command, params)
+    }
+    fn receive(&mut self, msg: &Json) -> Vec<Json> {
+        DeckRefApp::receive(self, msg)
+    }
+    fn model_json(&self) -> Result<Json, String> {
+        self.model().map(|m| m.to_json())
+    }
+    fn notices(&self) -> Vec<String> {
+        self.notices.clone()
+    }
+}
+
+/// The app a transcript is for (its `meta` line), `gridcraft` when it doesn't say.
+pub fn app_of(lines: &[Json]) -> String {
+    lines.first().and_then(|m| m.get("app")).and_then(Json::as_str).unwrap_or("gridcraft").to_string()
+}
+
+/// The reference app for a transcript's app.
+pub fn reference_app(lines: &[Json], seed: Option<u64>) -> Box<dyn App> {
+    match app_of(lines).as_str() {
+        "deckcraft" => Box::new(DeckRefApp::new(seed)),
+        _ => Box::new(RefApp::new(seed)),
+    }
+}
+
+/// A model in its canonical JSON form, for the transcript's app.
+fn normalize(app: &str, j: &Json) -> Result<Json, String> {
+    match app {
+        "deckcraft" => crate::deckcraft::Model::from_json(j).map(|m| m.to_json()),
+        _ => Model::from_json(j).map(|m| m.to_json()),
+    }
+}
+
+/// What a peer that has every update in `updates` sees, as a transcript model.
+fn peer_model(app: &str, updates: &[Vec<u8>]) -> Result<Json, String> {
+    match app {
+        "deckcraft" => DeckRefApp::model_of(updates).map(|m| m.to_json()),
+        _ => RefApp::model_of(updates).map(|m| m.to_json()),
+    }
+}
 
 /// The transport id the transcripts use in `collab.join`.
 pub const PLUGIN: &str = "org.craft.conformance";
@@ -105,8 +179,9 @@ fn update_of(msg: &Json, key: Option<&[u8; 32]>, room: &str) -> Option<Vec<u8>> 
     }
 }
 
-/// Replays a transcript against the reference app. `Err` names the failing line.
-pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
+/// Replays a transcript against an app. `Err` names the failing line.
+pub fn replay(lines: &[Json], app: &mut dyn App) -> Result<(), String> {
+    let schema_app = app_of(lines);
     let mut vars = HashMap::new();
     let mut outbox: VecDeque<Json> = VecDeque::new();
     let mut key: Option<[u8; 32]> = None;
@@ -162,11 +237,11 @@ pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
                     return Err(at(format!("the app didn't send {pattern}")));
                 }
                 if found && let Some(expected) = line.get("decodesTo") {
-                    let expected = Model::from_json(expected).map_err(at)?;
+                    let expected = normalize(&schema_app, expected).map_err(at)?;
                     let all: Vec<Vec<u8>> = peer.iter().chain(mine.iter()).cloned().collect();
-                    let got = RefApp::model_of(&all).map_err(at)?;
+                    let got = peer_model(&schema_app, &all).map_err(at)?;
                     if got != expected {
-                        return Err(at(format!("a peer would see {}, expected {}", got.to_json(), expected.to_json())));
+                        return Err(at(format!("a peer would see {got}, expected {expected}")));
                     }
                 }
             }
@@ -177,16 +252,17 @@ pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
                 outbox.clear();
             }
             "model" => {
-                let expected = Model::from_json(line.get("model").unwrap_or(&Json::Null)).map_err(at)?;
-                let got = app.model().map_err(at)?;
+                let expected = normalize(&schema_app, line.get("model").unwrap_or(&Json::Null)).map_err(at)?;
+                let got = normalize(&schema_app, &app.model_json().map_err(at)?).map_err(at)?;
                 if got != expected {
-                    return Err(at(format!("the app has {}, expected {}", got.to_json(), expected.to_json())));
+                    return Err(at(format!("the app has {got}, expected {expected}")));
                 }
             }
             "notice" => {
                 let text = line.get("contains").and_then(Json::as_str).unwrap_or("");
-                if !app.notices.iter().any(|n| n.contains(text)) {
-                    return Err(at(format!("the app didn't show “{text}” (it showed {:?})", app.notices)));
+                let notices = app.notices();
+                if !notices.iter().any(|n| n.contains(text)) {
+                    return Err(at(format!("the app didn't show “{text}” (it showed {notices:?})")));
                 }
             }
             other => return Err(at(format!("unknown line type {other:?}"))),
@@ -695,13 +771,15 @@ fn offline_transcript() -> Script {
 
 /// Every transcript: (file name, contents).
 pub fn generate() -> Vec<(String, String)> {
-    [join_transcript(), share_transcript(), encrypted_transcript(), robustness_transcript(), offline_transcript()]
+    let mut out: Vec<(String, String)> = [join_transcript(), share_transcript(), encrypted_transcript(), robustness_transcript(), offline_transcript()]
         .into_iter()
         .map(|s| {
             let name = s.lines.first().and_then(|m| m.get("name")).and_then(Json::as_str).unwrap_or("transcript").to_string();
             (format!("{name}.jsonl"), s.text())
         })
-        .collect()
+        .collect();
+    out.extend(crate::deck_transcripts::generate());
+    out
 }
 
 #[cfg(test)]
@@ -722,8 +800,8 @@ mod tests {
     fn every_transcript_passes_with_the_reference_app() {
         for (name, text) in generate() {
             let lines = parse(&text).unwrap();
-            let mut app = RefApp::new(Some(42));
-            if let Err(e) = replay(&lines, &mut app) {
+            let mut app = reference_app(&lines, Some(42));
+            if let Err(e) = replay(&lines, app.as_mut()) {
                 panic!("{name}: {e}");
             }
         }

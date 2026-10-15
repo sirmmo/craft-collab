@@ -23,14 +23,14 @@ fn committed_transcripts_pass() {
         if path.extension().is_some_and(|e| e == "jsonl") {
             let lines = transcript::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
             for seed in [1, 2, 3] {
-                if let Err(e) = transcript::replay(&lines, &mut RefApp::new(Some(seed))) {
+                if let Err(e) = transcript::replay(&lines, transcript::reference_app(&lines, Some(seed)).as_mut()) {
                     panic!("{}: {e}", path.display());
                 }
             }
             n += 1;
         }
     }
-    assert!(n >= 5);
+    assert!(n >= 10);
 }
 
 #[test]
