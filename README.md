@@ -12,13 +12,15 @@ three apps, and a room can be end-to-end encrypted.
 |---|---|
 | [docs/protocol-2.md](docs/protocol-2.md) | **Craft plugin protocol 2**: the push channel and co-editing (rooms, `collab/*` messages, encryption, the shared documents, the MQTT and y-websocket bindings). Normative |
 | [docs/schemas/gridcraft-1.md](docs/schemas/gridcraft-1.md) | GridCraft's shared workbook (schema 1): roots, ids, cells |
+| [docs/schemas/deckcraft-1.md](docs/schemas/deckcraft-1.md) | DeckCraft's shared presentation (schema 1): roots, ids, slides, shapes, text as Yjs text with formatting attributes, awareness |
 | [docs/conformance.md](docs/conformance.md) | Checking a transport, and the app-side transcripts |
 | [`craft-mqtt`](crates/craft-mqtt) | Transport over any MQTT broker (Mosquitto, EMQX, HiveMQ…), end-to-end encrypted |
 | [`craft-collab-loopback`](crates/craft-collab-loopback) | Transport between app processes on one computer, for development and the apps' tests |
 | [`craft-collab-conformance`](crates/conformance) | The conformance kit: drives a transport as two and three apps would; generates and replays the transcripts in [conformance/](conformance) |
 | [`craft-collab-kit`](crates/kit) | What the transports share: the push channel over stdio, rooms, relaying, presence, snapshot compaction, dialogs |
 
-The apps implement the app side (GridCraft's `docs/collab.md`); they need plugin protocol 2. With
+The apps implement the app side (GridCraft's and DeckCraft's `docs/collab.md`); they need plugin
+protocol 2. With
 an older app, the transports' commands answer with an error saying so.
 
 ## Live (MQTT): craft-mqtt

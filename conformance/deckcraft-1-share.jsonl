@@ -1,0 +1,36 @@
+{"t":"meta","name":"deckcraft-1-share","app":"deckcraft","schema":1,"format":1,"description":"Sharing the open presentation: seeding, answering collab/snapshot and sync1, local edits as one update each (typing, notes, a new slide), and a concurrent remote edit (the title, a new slide with a shape) merging in."}
+{"t":"note","text":"A known starting point: a blank slide replaces the new presentation's title slide, and gets a rectangle. Edits before joining a room aren't sent anywhere."}
+{"t":"run","command":"slide.new","params":{"layout":"blank","at":0}}
+{"t":"run","command":"slide.delete","params":{"index":1}}
+{"t":"run","command":"shape.insert","params":{"preset":"rect","rect":[100,100,400,120],"text":"Hello"}}
+{"t":"quiet"}
+{"t":"model","model":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello"}],"notes":""}]}}
+{"t":"run","command":"collab.join","params":{"plugin":"org.craft.conformance","room":"conformance:deck-share","mode":"share","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"role":"edit"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/joined","params":{"room":"conformance:deck-share","clientId":"$clientId","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"app":"deckcraft","schema":1,"encrypted":false}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:deck-share","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:deck-share","state":"connecting","peers":[]}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:deck-share","state":"online","peers":[{"clientId":1001,"user":{"id":"u-peer","name":"Peer","color":"#D8513B"}}]}}}
+{"t":"note","text":"Every time the transport reports online after another state, the app sends sync1."}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:deck-share","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","id":1,"method":"collab/snapshot","params":{"room":"conformance:deck-share"}}}
+{"t":"out","msg":{"jsonrpc":"2.0","id":1,"result":{"update":"$b64"}},"decodesTo":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello"}],"notes":""}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:deck-share","stateVector":"AA==","from":4004}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync2","params":{"room":"conformance:deck-share","update":"$b64","to":4004}},"decodesTo":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello"}],"notes":""}]}}
+{"t":"note","text":"Typing in the rectangle (it's still selected): one update."}
+{"t":"run","command":"text.edit","params":{"at":[0,5]}}
+{"t":"run","command":"text.insert","params":{"text":" world"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:deck-share","update":"$b64"}},"decodesTo":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":""}]}}
+{"t":"model","model":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":""}]}}
+{"t":"run","command":"slide.notes","params":{"text":"Speak slowly","index":0}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:deck-share","update":"$b64"}},"decodesTo":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"}]}}
+{"t":"model","model":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"}]}}
+{"t":"run","command":"slide.new","params":{"layout":"blank","at":1}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:deck-share","update":"$b64"}},"decodesTo":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"},{"shapes":[],"notes":""}]}}
+{"t":"model","model":{"title":"","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"},{"shapes":[],"notes":""}]}}
+{"t":"note","text":"A peer that started from nothing sets the title and adds a slide with a shape, concurrently: both merge (its client id is higher, so its title wins, and its slide, inserted into a list it saw empty, goes after the app's)."}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:deck-share","update":"AQ7+////////DwAoAQRtZXRhBXRpdGxlAXcLU2hhcmVkIHRhbGsnAQ5zbGlkZTowMHU4dHV4aQZzaGFwZXMAJwEOc2xpZGU6MDB1OHR1eGkFbm90ZXMCKAEOc2xpZGU6MDB1OHR1eGkJbm90ZXNCb2R5AXcCe30IAQZzbGlkZXMBdwgwMHU4dHV4aScBDnNsaWRlOjAwdTh0dXhpDnNoYXBlOjAwYmkwcXV2ASgA/v///////w8FBG5hbWUBdxUiUmVjdGFuZ2xlIDY5NTM5NTgzMSIoAP7///////8PBQRraW5kAXcQeyJ0eXBlIjoic2hhcGUifSgA/v///////w8FBGdlb20Bdx97ImtpbmQiOiJwcmVzZXQiLCJuYW1lIjoicmVjdCJ9KAD+////////DwUEeGZybQF3JnsieCI6MTAuMCwieSI6MTAuMCwidyI6MjAwLjAsImgiOjUwLjB9KAD+////////DwUIdGV4dEJvZHkBdwt7ImJvZHkiOnt9fScA/v///////w8FBHRleHQCBAD+////////DwsORnJvbSB0aGUgcGVlcgoIAP7///////8PAQF3CDAwYmkwcXV2AA==","from":9007199254740990}}}
+{"t":"model","model":{"title":"Shared talk","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"},{"shapes":[],"notes":""},{"shapes":[{"rect":[10.0,10.0,200.0,50.0],"text":"From the peer"}],"notes":""}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","id":2,"method":"collab/snapshot","params":{"room":"conformance:deck-share"}}}
+{"t":"out","msg":{"jsonrpc":"2.0","id":2,"result":{"update":"$b64"}},"decodesTo":{"title":"Shared talk","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"},{"shapes":[],"notes":""},{"shapes":[{"rect":[10.0,10.0,200.0,50.0],"text":"From the peer"}],"notes":""}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/leave","params":{"room":"conformance:deck-share"}}}
+{"t":"model","model":{"title":"Shared talk","slides":[{"shapes":[{"rect":[100.0,100.0,400.0,120.0],"text":"Hello world"}],"notes":"Speak slowly"},{"shapes":[],"notes":""},{"shapes":[{"rect":[10.0,10.0,200.0,50.0],"text":"From the peer"}],"notes":""}]}}

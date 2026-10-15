@@ -71,6 +71,9 @@ method name of section 4 (`collab/snapshot` for a snapshot answer and for `sync2
 
 **Models.** `{"title", "sheets": [{"name", "cells": {"A1": "input"}}]}` for GridCraft schema 1
 ([schemas/gridcraft-1.md](schemas/gridcraft-1.md#the-model-the-transcripts-compare)).
+`{"title", "slides": [{"shapes": [{"rect": [x, y, w, h] | null, "text": "…" | null}], "notes"}]}`
+for DeckCraft schema 1 ([schemas/deckcraft-1.md](schemas/deckcraft-1.md#the-model-the-transcripts-compare));
+numbers compare as numbers. The `meta` line's `app` says which.
 
 | Transcript | Covers |
 |---|---|
@@ -79,9 +82,15 @@ method name of section 4 (`collab/snapshot` for a snapshot answer and for `sync2
 | `gridcraft-1-encrypted` | a keyed room: the stored snapshot (`snapshot: true`), updates, dropping ciphertext for another method, tampered, for another room, with another key, garbage; answering with ciphertext; "Wrong room key?" after 10 failures |
 | `gridcraft-1-robustness` | missing fields, bad base64, bytes that aren't an update, a truncated update, a bad state vector, an unknown status, a WordCraft document ("This room is for wordcraft 1"), an unknown method, bad awareness |
 | `gridcraft-1-offline` | offline and back: local and remote edits meanwhile, both growing the sheet past its last row at once, `sync1` after coming back online, the answer to the peer's `sync1` holding the offline edits |
+| `deckcraft-1-join` | joining: the first state, remote typing in a shape, a shape moved, a slide added and one deleted, notes, awareness (`{slide, shapes}`), another room's message ignored, answering a newcomer's `sync1` with `to`, local typing (`text.edit` + `text.insert`) and a move (`shape.setBounds`) as one update each, `collab/leave`, editing after leaving |
+| `deckcraft-1-share` | sharing: a known starting point (a blank slide with a rectangle) made before joining and not sent, the seed, answering `collab/snapshot` and `sync1`, local typing, notes and a new slide as one update each, a concurrent remote title and slide merging in |
+| `deckcraft-1-encrypted` | a keyed room: the stored snapshot, updates, dropping ciphertext for another method, tampered, for another room, with another key, garbage; answering with ciphertext; "Wrong room key?" after 10 failures |
+| `deckcraft-1-robustness` | missing fields, bad base64, bytes that aren't an update, a truncated update, a bad state vector, an unknown status, a GridCraft document ("This room is for gridcraft 1"), ids that aren't ids and a number in the slide list, a property that isn't JSON, a shape entry that isn't a map, an unknown method, bad awareness |
+| `deckcraft-1-offline` | offline and back: the app and a peer type in the same shape's text (at its end and at its start) and move different shapes meanwhile; both texts and both moves after `sync1`; the answer to the peer's `sync1` holding the offline edits |
 
 The replayer in this repository (`craft-collab-conformance transcripts`) runs them against the
-reference app; an app replays them with its own engine (`run` → its commands, `in` → its collab
+reference apps (`refapp.rs` for GridCraft, `deckref.rs` for DeckCraft: the `run` lines are the
+app's own commands, which the reference apps emulate); an app replays them with its own engine (`run` → its commands, `in` → its collab
 inbox, `out` ← its outbox, `model` ← its workbook). Regenerate them after changing the generator
 with `cargo run -p craft-collab-conformance -- generate conformance` (they're deterministic, and a
 test fails when the committed ones are out of date).
