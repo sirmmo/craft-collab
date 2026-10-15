@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = ["crates/kit", "crates/craft-mqtt", "crates/craft-collab-loopback", "crates/conformance"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+authors = ["Marco Montanari and the craft-collab contributors"]
+repository = "https://github.com/sirmmo/craft-collab"
+publish = false
+
+[workspace.dependencies]
+craft-collab-kit = { path = "crates/kit" }
+craft-collab-conformance = { path = "crates/conformance" }
+base64 = "0.22"
+getrandom = "0.3"
+serde_json = { version = "1", features = ["preserve_order"] }
+yrs = "0.28"
+aes-gcm = "0.10.3"
+rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+rustls-native-certs = "0.8"
+webpki-roots = "1"
+rumqttd = { version = "0.20", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+too_many_arguments = "allow"
+type_complexity = "allow"
+large_enum_variant = "allow"
+
+[profile.release]
+opt-level = 3

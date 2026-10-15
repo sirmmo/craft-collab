@@ -1,0 +1,25 @@
+[package]
+name = "craft-mqtt"
+description = "Live co-editing over MQTT for the craft apps (GridCraft, WordCraft, DeckCraft): a protocol-2 transport plugin, end-to-end encrypted rooms"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+craft-collab-kit.workspace = true
+rumqttc.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+webpki-roots.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+craft-collab-conformance.workspace = true
+rumqttd.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

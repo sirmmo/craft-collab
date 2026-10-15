@@ -1,0 +1,24 @@
+[package]
+name = "craft-collab-conformance"
+description = "Conformance kit for craft plugin protocol 2: drives transport plugins as an app would, and generates and replays the app-side transcripts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "craft-collab-conformance"
+path = "src/main.rs"
+
+[dependencies]
+craft-collab-kit.workspace = true
+aes-gcm.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+serde_json.workspace = true
+yrs.workspace = true
+
+[lints]
+workspace = true

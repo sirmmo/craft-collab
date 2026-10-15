@@ -1,0 +1,89 @@
+# Builds the plugins for each platform and attaches them to the release of the pushed tag
+# (v1.2.3): one zip of craft-mqtt per platform, which the craft apps install from the
+# repository's address (docs/plugins.md, "Publishing a plugin on GitHub"), and one tar.gz of the
+# developer tools (the loopback transport and the conformance kit), which the installer ignores.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "craft-collab $TAG" --generate-notes
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, target: aarch64-apple-darwin, platform: macos-aarch64, ext: "" }
+          - { os: macos-15, target: x86_64-apple-darwin, platform: macos-x86_64, ext: "" }
+          # Static (musl), so it runs on any x86_64 Linux whatever its C library.
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, platform: linux-x86_64, ext: "" }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, platform: windows-x64, ext: ".exe" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update -q && sudo apt-get install -yq musl-tools
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p craft-mqtt -p craft-collab-loopback -p craft-collab-conformance
+      - name: Package
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
+          EXT: ${{ matrix.ext }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          bin="target/$TARGET/release"
+          version="${TAG#v}"
+          # A plugin folder: the program, its manifest naming it (craft-mqtt.exe on Windows), docs.
+          plugin() {
+            local name="$1" dir="$2"
+            mkdir -p "$dir"
+            cp "$bin/$name$EXT" "$dir/"
+            cp README.md LICENSE-MIT LICENSE-APACHE "$dir/"
+            "$dir/$name$EXT" --manifest | jq --arg cmd "./$name$EXT" '.run.command = $cmd' >"$dir/plugin.json"
+            if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - "$dir/$name$EXT"; fi
+          }
+          plugin craft-mqtt craft-mqtt
+          zip_name="craft-mqtt-$version-$PLATFORM.zip"
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "$zip_name" craft-mqtt >/dev/null
+          elif [ "$RUNNER_OS" = macOS ]; then
+            ditto -c -k --keepParent craft-mqtt "$zip_name"
+          else
+            zip -qr "$zip_name" craft-mqtt
+          fi
+          tools="craft-collab-tools-$version-$PLATFORM"
+          plugin craft-collab-loopback "$tools/craft-collab-loopback"
+          cp "$bin/craft-collab-conformance$EXT" "$tools/"
+          if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - "$tools/craft-collab-conformance$EXT"; fi
+          cp -R conformance docs README.md LICENSE-MIT LICENSE-APACHE "$tools/"
+          tar -czf "$tools.tar.gz" "$tools"
+          echo "ZIP=$zip_name" >>"$GITHUB_ENV"
+          echo "TOOLS=$tools.tar.gz" >>"$GITHUB_ENV"
+      - name: Attach to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" "$ZIP" "$TOOLS" --repo "$GITHUB_REPOSITORY" --clobber

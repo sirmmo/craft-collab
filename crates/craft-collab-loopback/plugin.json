@@ -1,0 +1,80 @@
+{
+  "apps": [
+    "gridcraft",
+    "wordcraft",
+    "deckcraft"
+  ],
+  "author": "Marco Montanari and the craft-collab contributors",
+  "collab": {
+    "label": "Live (Loopback)",
+    "transport": "loopback"
+  },
+  "commands": [
+    {
+      "description": "Start a live session between apps on this computer",
+      "id": "share",
+      "label": "Share Live (Loopback)",
+      "params": "{room?, name?, color?, encrypt?} or {fields}"
+    },
+    {
+      "description": "Join a live session on this computer by room name or invitation",
+      "id": "join",
+      "label": "Join Live (Loopback)",
+      "params": "{link | room, key?, name?, color?} or {fields}"
+    },
+    {
+      "description": "Leave the live session (the document stays open)",
+      "id": "leave",
+      "label": "Leave Live Session",
+      "params": "{room?}"
+    },
+    {
+      "description": "The live sessions and who's in them",
+      "id": "status",
+      "label": "Live Status",
+      "params": "{}"
+    },
+    {
+      "description": "Close a dialog (from the invitation dialog)",
+      "id": "dismiss",
+      "label": "Close",
+      "params": "{}"
+    }
+  ],
+  "description": "Live co-editing between apps on this computer, through a local relay: for development and tests. Needs craft plugin protocol 2.",
+  "homepage": "https://github.com/sirmmo/craft-collab",
+  "id": "org.craft.collab.loopback",
+  "name": "Live (Loopback)",
+  "run": {
+    "command": "./craft-collab-loopback"
+  },
+  "ui": {
+    "ribbon": [
+      {
+        "buttons": [
+          {
+            "command": "share",
+            "icon": "share"
+          },
+          {
+            "command": "join",
+            "icon": "link"
+          },
+          {
+            "command": "leave",
+            "icon": "minus",
+            "size": "small"
+          },
+          {
+            "command": "status",
+            "icon": "info",
+            "size": "small"
+          }
+        ],
+        "group": "Loopback",
+        "tab": "Live"
+      }
+    ]
+  },
+  "version": "0.1.0"
+}

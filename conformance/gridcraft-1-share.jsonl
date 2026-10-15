@@ -1,0 +1,35 @@
+{"t":"meta","name":"gridcraft-1-share","app":"gridcraft","schema":1,"format":1,"description":"Sharing the open document: seeding, answering collab/snapshot and sync1, local edits as one update each (a cell, an inserted row), and a concurrent remote edit (title and a new sheet) merging in."}
+{"t":"note","text":"Edits before joining a room aren't sent anywhere."}
+{"t":"run","command":"cell.set","params":{"cell":"A1","input":"Item"}}
+{"t":"run","command":"cell.set","params":{"cell":"B1","input":"Cost"}}
+{"t":"run","command":"cell.set","params":{"cell":"A2","input":"Coffee"}}
+{"t":"run","command":"cell.set","params":{"cell":"B2","input":"3.5"}}
+{"t":"quiet"}
+{"t":"model","model":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Coffee","B1":"Cost","B2":"3.5"}}]}}
+{"t":"run","command":"collab.join","params":{"plugin":"org.craft.conformance","room":"conformance:share","mode":"share","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"role":"edit"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/joined","params":{"room":"conformance:share","clientId":"$clientId","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"app":"gridcraft","schema":1,"encrypted":false}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:share","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:share","state":"connecting","peers":[]}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:share","state":"online","peers":[{"clientId":1001,"user":{"id":"u-peer","name":"Peer","color":"#D8513B"}}]}}}
+{"t":"note","text":"Every time the transport reports online after another state, the app sends sync1."}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:share","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","id":1,"method":"collab/snapshot","params":{"room":"conformance:share"}}}
+{"t":"out","msg":{"jsonrpc":"2.0","id":1,"result":{"update":"$b64"}},"decodesTo":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Coffee","B1":"Cost","B2":"3.5"}}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:share","stateVector":"AA==","from":4004}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync2","params":{"room":"conformance:share","update":"$b64","to":4004}},"decodesTo":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Coffee","B1":"Cost","B2":"3.5"}}]}}
+{"t":"run","command":"cell.set","params":{"cell":"A3","input":"Tea"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:share","update":"$b64"}},"decodesTo":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Coffee","A3":"Tea","B1":"Cost","B2":"3.5"}}]}}
+{"t":"model","model":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Coffee","A3":"Tea","B1":"Cost","B2":"3.5"}}]}}
+{"t":"run","command":"home.insertRows","params":{"rows":"2:2"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:share","update":"$b64"}},"decodesTo":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}}]}}
+{"t":"model","model":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}}]}}
+{"t":"run","command":"cell.set","params":{"cell":"A2","input":"Milk"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:share","update":"$b64"}},"decodesTo":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Milk","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}}]}}
+{"t":"model","model":{"title":"","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Milk","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}}]}}
+{"t":"note","text":"A peer that started from nothing sets the title and adds a sheet, concurrently: both merge (its client id is higher, so its title wins)."}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:share","update":"AQz+////////DwAoAQRtZXRhBXRpdGxlAXcNU2hhcmVkIGJ1ZGdldCgBDnNoZWV0OnY0MWQweDYzBG5hbWUBdwpQZWVyIG5vdGVzJwEOc2hlZXQ6djQxZDB4NjMEcm93cwAnAQ5zaGVldDp2NDFkMHg2MwRjb2xzACcBDnNoZWV0OnY0MWQweDYzBWNlbGxzAQgBBnNoZWV0cwF3CHY0MWQweDYzCAD+////////DwJAdwR+MC4wdwR+MC4xdwR+MC4ydwR+MC4zdwR+MC40dwR+MC41dwR+MC42dwR+MC43dwR+MC44dwR+MC45dwV+MC4xMHcFfjAuMTF3BX4wLjEydwV+MC4xM3cFfjAuMTR3BX4wLjE1dwV+MC4xNncFfjAuMTd3BX4wLjE4dwV+MC4xOXcFfjAuMjB3BX4wLjIxdwV+MC4yMncFfjAuMjN3BX4wLjI0dwV+MC4yNXcFfjAuMjZ3BX4wLjI3dwV+MC4yOHcFfjAuMjl3BX4wLjMwdwV+MC4zMXcFfjAuMzJ3BX4wLjMzdwV+MC4zNHcFfjAuMzV3BX4wLjM2dwV+MC4zN3cFfjAuMzh3BX4wLjM5dwV+MC40MHcFfjAuNDF3BX4wLjQydwV+MC40M3cFfjAuNDR3BX4wLjQ1dwV+MC40NncFfjAuNDd3BX4wLjQ4dwV+MC40OXcFfjAuNTB3BX4wLjUxdwV+MC41MncFfjAuNTN3BX4wLjU0dwV+MC41NXcFfjAuNTZ3BX4wLjU3dwV+MC41OHcFfjAuNTl3BX4wLjYwdwV+MC42MXcFfjAuNjJ3BX4wLjYzKAEOc2hlZXQ6djQxZDB4NjMJcm93QmxvY2tzAX0BCAD+////////DwNAdwR+MC4wdwR+MC4xdwR+MC4ydwR+MC4zdwR+MC40dwR+MC41dwR+MC42dwR+MC43dwR+MC44dwR+MC45dwV+MC4xMHcFfjAuMTF3BX4wLjEydwV+MC4xM3cFfjAuMTR3BX4wLjE1dwV+MC4xNncFfjAuMTd3BX4wLjE4dwV+MC4xOXcFfjAuMjB3BX4wLjIxdwV+MC4yMncFfjAuMjN3BX4wLjI0dwV+MC4yNXcFfjAuMjZ3BX4wLjI3dwV+MC4yOHcFfjAuMjl3BX4wLjMwdwV+MC4zMXcFfjAuMzJ3BX4wLjMzdwV+MC4zNHcFfjAuMzV3BX4wLjM2dwV+MC4zN3cFfjAuMzh3BX4wLjM5dwV+MC40MHcFfjAuNDF3BX4wLjQydwV+MC40M3cFfjAuNDR3BX4wLjQ1dwV+MC40NncFfjAuNDd3BX4wLjQ4dwV+MC40OXcFfjAuNTB3BX4wLjUxdwV+MC41MncFfjAuNTN3BX4wLjU0dwV+MC41NXcFfjAuNTZ3BX4wLjU3dwV+MC41OHcFfjAuNTl3BX4wLjYwdwV+MC42MXcFfjAuNjJ3BX4wLjYzKAEOc2hlZXQ6djQxZDB4NjMJY29sQmxvY2tzAX0BJwD+////////DwQJfjAuMDp+MC4wASgA/v///////w+IAQVpbnB1dAF3DWZyb20gdGhlIHBlZXIA","from":9007199254740990}}}
+{"t":"model","model":{"title":"Shared budget","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Milk","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}},{"name":"Peer notes","cells":{"A1":"from the peer"}}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","id":2,"method":"collab/snapshot","params":{"room":"conformance:share"}}}
+{"t":"out","msg":{"jsonrpc":"2.0","id":2,"result":{"update":"$b64"}},"decodesTo":{"title":"Shared budget","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Milk","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}},{"name":"Peer notes","cells":{"A1":"from the peer"}}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/leave","params":{"room":"conformance:share"}}}
+{"t":"model","model":{"title":"Shared budget","sheets":[{"name":"Sheet1","cells":{"A1":"Item","A2":"Milk","A3":"Coffee","A4":"Tea","B1":"Cost","B3":"3.5"}},{"name":"Peer notes","cells":{"A1":"from the peer"}}]}}
