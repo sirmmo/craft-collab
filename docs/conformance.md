@@ -70,7 +70,16 @@ method name of section 4 (`collab/snapshot` for a snapshot answer and for `sync2
 `snapshot: true`). The resulting document must read as this model.
 
 **Models.** `{"title", "sheets": [{"name", "cells": {"A1": "input"}}]}` for GridCraft schema 1
-([schemas/gridcraft-1.md](schemas/gridcraft-1.md#the-model-the-transcripts-compare)).
+([schemas/gridcraft-1.md](schemas/gridcraft-1.md#the-model-the-transcripts-compare));
+`{"title", "body": [{"text", "runs": [{"text", …attributes}], "props"?} | {"table": [[[blocks]]]}]}`
+for WordCraft schema 1 ([schemas/wordcraft-1.md](schemas/wordcraft-1.md#the-model-the-transcripts-compare)).
+The `meta` line's `app` says which.
+
+**WordCraft's commands** in `run` lines: `select.text {text}` (selects the first match in the
+body), `caret.set {pos: {story: "body", path, off}}` (a caret at byte `off` of the paragraph at
+block path `path`), `text.insert {text}` (replaces the selection; the text takes the formatting of
+the character before), `text.newParagraph` (Enter), `format.bold {value}` (sets `bold` and
+`boldCs`).
 
 | Transcript | Covers |
 |---|---|
@@ -79,6 +88,11 @@ method name of section 4 (`collab/snapshot` for a snapshot answer and for `sync2
 | `gridcraft-1-encrypted` | a keyed room: the stored snapshot (`snapshot: true`), updates, dropping ciphertext for another method, tampered, for another room, with another key, garbage; answering with ciphertext; "Wrong room key?" after 10 failures |
 | `gridcraft-1-robustness` | missing fields, bad base64, bytes that aren't an update, a truncated update, a bad state vector, an unknown status, a WordCraft document ("This room is for wordcraft 1"), an unknown method, bad awareness |
 | `gridcraft-1-offline` | offline and back: local and remote edits meanwhile, both growing the sheet past its last row at once, `sync1` after coming back online, the answer to the peer's `sync1` holding the offline edits |
+| `wordcraft-1-join` | joining: the first state (a heading, bold text, a table), remote typing, a remote bold range, a remote Enter splitting a paragraph, typing in a table cell, awareness with relative positions, another room's message ignored, answering a newcomer's `sync1` with `to`, a local edit, `collab/leave`, editing after leaving (nothing sent) |
+| `wordcraft-1-share` | sharing: typing before joining isn't sent, the seed, answering `collab/snapshot` and `sync1`, local edits as one update each (bold, typing over a selection, Enter, typing), a concurrent remote title and paragraph merging in |
+| `wordcraft-1-encrypted` | a keyed room, as `gridcraft-1-encrypted` |
+| `wordcraft-1-robustness` | as `gridcraft-1-robustness`, with a GridCraft document ("This room is for gridcraft 1") |
+| `wordcraft-1-offline` | offline and back with both people typing in one paragraph meanwhile, twice at the same place: the edits merge character by character, the lower client id's text first |
 
 The replayer in this repository (`craft-collab-conformance transcripts`) runs them against the
 reference app; an app replays them with its own engine (`run` → its commands, `in` → its collab

@@ -14,7 +14,6 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use craft_collab_conformance::harness::Launch;
-use craft_collab_conformance::refapp::RefApp;
 use craft_collab_conformance::{transcript, transport};
 
 const USAGE: &str = "usage:
@@ -77,7 +76,7 @@ fn transcripts_cmd(dir: PathBuf) -> Result<bool, String> {
     let mut ok = true;
     for f in files {
         let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
-        let result = transcript::parse(&text).and_then(|lines| transcript::replay(&lines, &mut RefApp::new(None)));
+        let result = transcript::parse(&text).and_then(|lines| transcript::replay_any(&lines, None));
         match result {
             Ok(()) => println!("pass  {}", f.display()),
             Err(e) => {

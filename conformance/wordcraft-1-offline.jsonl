@@ -1,0 +1,31 @@
+{"t":"meta","name":"wordcraft-1-offline","app":"wordcraft","schema":1,"format":1,"description":"Going offline and back, with both people typing in one paragraph meanwhile (one of them at the same place): the edits merge character by character after the app's new sync1, the peer's text first where both typed at one place (its client id is lower)."}
+{"t":"run","command":"collab.join","params":{"plugin":"org.craft.conformance","room":"conformance:woffline","mode":"join","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"role":"edit"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/joined","params":{"room":"conformance:woffline","clientId":"$clientId","user":{"id":"u-app","name":"App Under Test","color":"#3B7DD8"},"app":"wordcraft","schema":1,"encrypted":false}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:woffline","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:woffline","state":"connecting","peers":[]}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:woffline","state":"online","peers":[{"clientId":1001,"user":{"id":"u-peer","name":"Peer","color":"#D8513B"}}]}}}
+{"t":"note","text":"Every time the transport reports online after another state, the app sends sync1."}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:woffline","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/sync2","params":{"room":"conformance:woffline","update":"AQnpBwAoAQRtZXRhA2FwcAF3CXdvcmRjcmFmdCgBBG1ldGEGc2NoZW1hAX0BKAEEbWV0YQV0aXRsZQF3BU5vdGVzBwEEYm9keQMBcAcA6QcDBgQA6QcEDlRoZSBmb3gganVtcHMuh+kHAwMBcAcA6QcTBgQA6QcUC1NlY29uZCBsaW5lAA==","from":1001}}}
+{"t":"model","model":{"title":"Notes","body":[{"text":"The fox jumps.","runs":[{"text":"The fox jumps."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:woffline","state":"offline","peers":[],"message":"Connection lost"}}}
+{"t":"note","text":"Editing goes on offline; the app may send the updates now (the transport may queue them) or not."}
+{"t":"run","command":"caret.set","params":{"pos":{"story":"body","path":[0],"off":4}}}
+{"t":"run","command":"text.insert","params":{"text":"quick "}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:woffline","update":"$b64"}},"decodesTo":{"title":"Notes","body":[{"text":"The quick fox jumps.","runs":[{"text":"The quick fox jumps."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]},"optional":true}
+{"t":"model","model":{"title":"Notes","body":[{"text":"The quick fox jumps.","runs":[{"text":"The quick fox jumps."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]}}
+{"t":"run","command":"text.insert","params":{"text":"red "}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:woffline","update":"$b64"}},"decodesTo":{"title":"Notes","body":[{"text":"The quick red fox jumps.","runs":[{"text":"The quick red fox jumps."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]},"optional":true}
+{"t":"model","model":{"title":"Notes","body":[{"text":"The quick red fox jumps.","runs":[{"text":"The quick red fox jumps."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]}}
+{"t":"run","command":"caret.set","params":{"pos":{"story":"body","path":[0],"off":23}}}
+{"t":"run","command":"text.insert","params":{"text":" high"}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:woffline","update":"$b64"}},"decodesTo":{"title":"Notes","body":[{"text":"The quick red fox jumps high.","runs":[{"text":"The quick red fox jumps high."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]},"optional":true}
+{"t":"model","model":{"title":"Notes","body":[{"text":"The quick red fox jumps high.","runs":[{"text":"The quick red fox jumps high."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]}}
+{"t":"note","text":"The peer typed too, in the same paragraph: \"brown \" where the app typed \"quick \", and \" over the dog\" before the full stop; its update arrives once the app is back."}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/status","params":{"room":"conformance:woffline","state":"online","peers":[{"clientId":1001,"user":{"id":"u-peer","name":"Peer","color":"#D8513B"}}]}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:woffline","stateVector":"$b64"}}}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/update","params":{"room":"conformance:woffline","update":"AQLpByDE6QcR6QcSDSBvdmVyIHRoZSBkb2fE6QcI6QcJBmJyb3duIAA=","from":1001}}}
+{"t":"model","model":{"title":"Notes","body":[{"text":"The brown quick red fox jumps over the dog high.","runs":[{"text":"The brown quick red fox jumps over the dog high."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]}}
+{"t":"note","text":"The peer asks with its state vector: the app's answer holds its offline edits."}
+{"t":"in","msg":{"jsonrpc":"2.0","method":"collab/sync1","params":{"room":"conformance:woffline","stateVector":"AekHMw==","from":1001}}}
+{"t":"out","msg":{"jsonrpc":"2.0","method":"collab/sync2","params":{"room":"conformance:woffline","update":"$b64","to":1001}},"decodesTo":{"title":"Notes","body":[{"text":"The brown quick red fox jumps over the dog high.","runs":[{"text":"The brown quick red fox jumps over the dog high."}]},{"text":"Second line","runs":[{"text":"Second line"}]}]}}

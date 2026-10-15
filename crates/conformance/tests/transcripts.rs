@@ -1,5 +1,6 @@
 //! The committed transcripts are the generated ones, and the reference app passes them.
 
+use craft_collab_conformance::gridcraft::GridCraft;
 use craft_collab_conformance::refapp::RefApp;
 use craft_collab_conformance::transcript;
 
@@ -23,14 +24,14 @@ fn committed_transcripts_pass() {
         if path.extension().is_some_and(|e| e == "jsonl") {
             let lines = transcript::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
             for seed in [1, 2, 3] {
-                if let Err(e) = transcript::replay(&lines, &mut RefApp::new(Some(seed))) {
+                if let Err(e) = transcript::replay_any(&lines, Some(seed)) {
                     panic!("{}: {e}", path.display());
                 }
             }
             n += 1;
         }
     }
-    assert!(n >= 5);
+    assert!(n >= 10);
 }
 
 #[test]
@@ -40,9 +41,9 @@ fn a_broken_app_fails_the_transcripts() {
     let mut lines = transcript::parse(&text).unwrap();
     // Expect an update the app never sends.
     lines.push(serde_json::json!({"t": "out", "msg": {"method": "collab/update", "params": {"room": "conformance:offline", "update": "$b64"}}}));
-    assert!(transcript::replay(&lines, &mut RefApp::new(Some(1))).is_err());
+    assert!(transcript::replay(&lines, &mut RefApp::<GridCraft>::new(Some(1))).is_err());
     // A wrong model fails.
     let mut lines = transcript::parse(&text).unwrap();
     lines.push(serde_json::json!({"t": "model", "model": {"title": "", "sheets": []}}));
-    assert!(transcript::replay(&lines, &mut RefApp::new(Some(1))).is_err());
+    assert!(transcript::replay(&lines, &mut RefApp::<GridCraft>::new(Some(1))).is_err());
 }

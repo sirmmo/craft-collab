@@ -153,9 +153,9 @@ fn the_broker_stores_ciphertext() {
         assert!(Instant::now() < end, "no retained snapshot");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert!(RefApp::model_of(std::slice::from_ref(&snapshot)).is_err(), "the broker can read the snapshot");
+    assert!(<RefApp>::model_of(std::slice::from_ref(&snapshot)).is_err(), "the broker can read the snapshot");
     let plain = crypto::open(&key, &room, "collab/snapshot", &snapshot).expect("the snapshot is encrypted for collab/snapshot");
-    let snap_model = RefApp::model_of(&[plain]).unwrap();
+    let snap_model = <RefApp>::model_of(&[plain]).unwrap();
     assert!(a.app.snapshot_models.contains(&snap_model));
     assert_eq!(snap_model, expected);
     // Presence is retained JSON naming the user, without the key.

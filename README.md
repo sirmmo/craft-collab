@@ -12,6 +12,7 @@ three apps, and a room can be end-to-end encrypted.
 |---|---|
 | [docs/protocol-2.md](docs/protocol-2.md) | **Craft plugin protocol 2**: the push channel and co-editing (rooms, `collab/*` messages, encryption, the shared documents, the MQTT and y-websocket bindings). Normative |
 | [docs/schemas/gridcraft-1.md](docs/schemas/gridcraft-1.md) | GridCraft's shared workbook (schema 1): roots, ids, cells |
+| [docs/schemas/wordcraft-1.md](docs/schemas/wordcraft-1.md) | WordCraft's shared document (schema 1): stories as Yjs XML, text with formatting attributes, tables, relative-position selections |
 | [docs/conformance.md](docs/conformance.md) | Checking a transport, and the app-side transcripts |
 | [`craft-mqtt`](crates/craft-mqtt) | Transport over any MQTT broker (Mosquitto, EMQX, HiveMQ…), end-to-end encrypted |
 | [`craft-collab-loopback`](crates/craft-collab-loopback) | Transport between app processes on one computer, for development and the apps' tests |

@@ -13,8 +13,10 @@ use yrs::{Doc, Map, ReadTxn, StateVector, Transact, TransactionMut, WriteTxn};
 
 use crate::awareness::{self, Entry};
 use crate::crypto;
-use crate::gridcraft::{self, Ids, Model};
+use crate::gridcraft::{self, GridCraft, Ids, Model};
 use crate::refapp::RefApp;
+use crate::schema::Schema;
+use crate::wordcraft::WordCraft;
 
 /// The transport id the transcripts use in `collab.join`.
 pub const PLUGIN: &str = "org.craft.conformance";
@@ -106,7 +108,7 @@ fn update_of(msg: &Json, key: Option<&[u8; 32]>, room: &str) -> Option<Vec<u8>> 
 }
 
 /// Replays a transcript against the reference app. `Err` names the failing line.
-pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
+pub fn replay<S: Schema>(lines: &[Json], app: &mut RefApp<S>) -> Result<(), String> {
     let mut vars = HashMap::new();
     let mut outbox: VecDeque<Json> = VecDeque::new();
     let mut key: Option<[u8; 32]> = None;
@@ -162,11 +164,11 @@ pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
                     return Err(at(format!("the app didn't send {pattern}")));
                 }
                 if found && let Some(expected) = line.get("decodesTo") {
-                    let expected = Model::from_json(expected).map_err(at)?;
+                    let expected = S::from_json(expected).map_err(at)?;
                     let all: Vec<Vec<u8>> = peer.iter().chain(mine.iter()).cloned().collect();
-                    let got = RefApp::model_of(&all).map_err(at)?;
+                    let got = RefApp::<S>::model_of(&all).map_err(at)?;
                     if got != expected {
-                        return Err(at(format!("a peer would see {}, expected {}", got.to_json(), expected.to_json())));
+                        return Err(at(format!("a peer would see {}, expected {}", S::to_json(&got), S::to_json(&expected))));
                     }
                 }
             }
@@ -177,10 +179,10 @@ pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
                 outbox.clear();
             }
             "model" => {
-                let expected = Model::from_json(line.get("model").unwrap_or(&Json::Null)).map_err(at)?;
+                let expected = S::from_json(line.get("model").unwrap_or(&Json::Null)).map_err(at)?;
                 let got = app.model().map_err(at)?;
                 if got != expected {
-                    return Err(at(format!("the app has {}, expected {}", got.to_json(), expected.to_json())));
+                    return Err(at(format!("the app has {}, expected {}", S::to_json(&got), S::to_json(&expected))));
                 }
             }
             "notice" => {
@@ -201,6 +203,21 @@ pub fn replay(lines: &[Json], app: &mut RefApp) -> Result<(), String> {
     Ok(())
 }
 
+/// The app a transcript is for (its `meta` line's `app`).
+pub fn app_of(lines: &[Json]) -> &str {
+    lines.first().and_then(|m| m.get("app")).and_then(Json::as_str).unwrap_or(gridcraft::APP)
+}
+
+/// Replays a transcript against the reference app of its schema (`seed` as for
+/// [`RefApp::new`]).
+pub fn replay_any(lines: &[Json], seed: Option<u64>) -> Result<(), String> {
+    match app_of(lines) {
+        gridcraft::APP => replay(lines, &mut RefApp::<GridCraft>::new(seed)),
+        crate::wordcraft::APP => replay(lines, &mut RefApp::<WordCraft>::new(seed)),
+        other => Err(format!("no reference app for {other}")),
+    }
+}
+
 /// Parses a `.jsonl` transcript.
 pub fn parse(text: &str) -> Result<Vec<Json>, String> {
     text.lines()
@@ -214,27 +231,27 @@ pub fn parse(text: &str) -> Result<Vec<Json>, String> {
 // Generating
 
 /// Another person's document, with a fixed client id.
-struct Peer {
-    doc: Doc,
-    ids: Ids,
+pub(crate) struct Peer {
+    pub(crate) doc: Doc,
+    pub(crate) ids: Ids,
 }
 
 impl Peer {
-    fn new(client: u64, seed: u64) -> Peer {
+    pub(crate) fn new(client: u64, seed: u64) -> Peer {
         Peer { doc: Doc::with_client_id(client), ids: Ids::seeded(seed) }
     }
 
-    fn edit(&mut self, f: impl FnOnce(&mut TransactionMut, &mut Ids)) -> Vec<u8> {
+    pub(crate) fn edit(&mut self, f: impl FnOnce(&mut TransactionMut, &mut Ids)) -> Vec<u8> {
         let mut t = self.doc.transact_mut();
         f(&mut t, &mut self.ids);
         t.encode_update_v1()
     }
 
-    fn full(&self) -> Vec<u8> {
+    pub(crate) fn full(&self) -> Vec<u8> {
         self.doc.transact().encode_state_as_update_v1(&StateVector::default())
     }
 
-    fn sv(&self) -> Vec<u8> {
+    pub(crate) fn sv(&self) -> Vec<u8> {
         self.doc.transact().state_vector().encode_v1()
     }
 
@@ -259,21 +276,26 @@ impl Peer {
 }
 
 /// Writes one transcript.
-struct Script {
-    lines: Vec<Json>,
-    room: String,
+pub(crate) struct Script {
+    pub(crate) lines: Vec<Json>,
+    pub(crate) room: String,
     key: Option<[u8; 32]>,
     nonces: Ids,
+    app: &'static str,
 }
 
 impl Script {
     fn new(name: &str, description: &str, room: &str, key: Option<[u8; 32]>) -> Script {
-        let mut s = Script { lines: Vec::new(), room: room.into(), key, nonces: Ids::seeded(0xC0FFEE) };
-        s.lines.push(json!({"t": "meta", "name": name, "app": "gridcraft", "schema": 1, "format": 1, "description": description}));
+        Script::for_app("gridcraft", name, description, room, key)
+    }
+
+    pub(crate) fn for_app(app: &'static str, name: &str, description: &str, room: &str, key: Option<[u8; 32]>) -> Script {
+        let mut s = Script { lines: Vec::new(), room: room.into(), key, nonces: Ids::seeded(0xC0FFEE), app };
+        s.lines.push(json!({"t": "meta", "name": name, "app": app, "schema": 1, "format": 1, "description": description}));
         s
     }
 
-    fn nonce(&mut self) -> [u8; 12] {
+    pub(crate) fn nonce(&mut self) -> [u8; 12] {
         let mut n = [0u8; 12];
         let (a, b) = (self.nonces.bits().to_le_bytes(), self.nonces.bits().to_le_bytes());
         for (i, x) in n.iter_mut().enumerate() {
@@ -283,7 +305,7 @@ impl Script {
     }
 
     /// Plaintext → wire (encrypted for `method` when keyed).
-    fn wire(&mut self, method: &str, plain: &[u8]) -> String {
+    pub(crate) fn wire(&mut self, method: &str, plain: &[u8]) -> String {
         match self.key {
             Some(k) => {
                 let n = self.nonce();
@@ -293,54 +315,62 @@ impl Script {
         }
     }
 
-    fn note(&mut self, text: &str) {
+    pub(crate) fn note(&mut self, text: &str) {
         self.lines.push(json!({"t": "note", "text": text}));
     }
 
-    fn run(&mut self, command: &str, params: Json) {
+    pub(crate) fn run(&mut self, command: &str, params: Json) {
         self.lines.push(json!({"t": "run", "command": command, "params": params}));
     }
 
-    fn input(&mut self, method: &str, params: Json) {
+    pub(crate) fn input(&mut self, method: &str, params: Json) {
         self.lines.push(json!({"t": "in", "msg": {"jsonrpc": "2.0", "method": method, "params": params}}));
     }
 
-    fn invalid(&mut self, method: &str, params: Json) {
+    pub(crate) fn invalid(&mut self, method: &str, params: Json) {
         self.lines.push(json!({"t": "in", "valid": false, "msg": {"jsonrpc": "2.0", "method": method, "params": params}}));
     }
 
-    fn request(&mut self, id: u64, method: &str, params: Json) {
+    pub(crate) fn request(&mut self, id: u64, method: &str, params: Json) {
         self.lines.push(json!({"t": "in", "msg": {"jsonrpc": "2.0", "id": id, "method": method, "params": params}}));
     }
 
-    fn update(&mut self, from: u64, plain: &[u8]) {
+    pub(crate) fn update(&mut self, from: u64, plain: &[u8]) {
         let u = self.wire("collab/update", plain);
         let room = self.room.clone();
         self.input("collab/update", json!({"room": room, "update": u, "from": from}));
     }
 
-    fn out(&mut self, method: &str, params: Json) {
+    pub(crate) fn out(&mut self, method: &str, params: Json) {
         self.lines.push(json!({"t": "out", "msg": {"jsonrpc": "2.0", "method": method, "params": params}}));
     }
 
-    fn out_decodes(&mut self, msg: Json, model: &Model, optional: bool) {
-        let mut l = json!({"t": "out", "msg": msg, "decodesTo": model.to_json()});
+    pub(crate) fn out_decodes(&mut self, msg: Json, model: &Model, optional: bool) {
+        self.out_decodes_json(msg, model.to_json(), optional);
+    }
+
+    pub(crate) fn out_decodes_json(&mut self, msg: Json, model: Json, optional: bool) {
+        let mut l = json!({"t": "out", "msg": msg, "decodesTo": model});
         if optional {
             put(&mut l, "optional", json!(true));
         }
         self.lines.push(l);
     }
 
-    fn model(&mut self, m: &Model) {
-        self.lines.push(json!({"t": "model", "model": m.to_json()}));
+    pub(crate) fn model(&mut self, m: &Model) {
+        self.model_json(m.to_json());
     }
 
-    fn status(&mut self, state: &str, peers: Json) {
+    pub(crate) fn model_json(&mut self, m: Json) {
+        self.lines.push(json!({"t": "model", "model": m}));
+    }
+
+    pub(crate) fn status(&mut self, state: &str, peers: Json) {
         let room = self.room.clone();
         self.input("collab/status", json!({"room": room, "state": state, "peers": peers}));
     }
 
-    fn join(&mut self, mode: &str) {
+    pub(crate) fn join(&mut self, mode: &str) {
         let mut params = json!({"plugin": PLUGIN, "room": self.room, "mode": mode, "user": app_user(), "role": "edit"});
         if let Some(k) = &self.key {
             put(&mut params, "key", json!(b64::encode(k)));
@@ -349,7 +379,7 @@ impl Script {
         let room = self.room.clone();
         self.out(
             "collab/joined",
-            json!({"room": room, "clientId": "$clientId", "user": app_user(), "app": "gridcraft", "schema": 1, "encrypted": self.key.is_some()}),
+            json!({"room": room, "clientId": "$clientId", "user": app_user(), "app": self.app, "schema": 1, "encrypted": self.key.is_some()}),
         );
         self.out("collab/sync1", json!({"room": room, "stateVector": "$b64"}));
         self.status("connecting", json!([]));
@@ -358,20 +388,20 @@ impl Script {
         self.out("collab/sync1", json!({"room": room, "stateVector": "$b64"}));
     }
 
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         self.lines.iter().map(|l| format!("{l}\n")).collect()
     }
 }
 
-const PEER: u64 = 1001;
+pub(crate) const PEER: u64 = 1001;
 /// A client id above any app's, so the peer's concurrent writes to the same map key win.
-const HIGH_PEER: u64 = (1 << 53) - 2;
+pub(crate) const HIGH_PEER: u64 = (1 << 53) - 2;
 
-fn app_user() -> Json {
+pub(crate) fn app_user() -> Json {
     json!({"id": "u-app", "name": "App Under Test", "color": "#3B7DD8"})
 }
 
-fn peer_user() -> Json {
+pub(crate) fn peer_user() -> Json {
     json!({"id": "u-peer", "name": "Peer", "color": "#D8513B"})
 }
 
@@ -697,6 +727,7 @@ fn offline_transcript() -> Script {
 pub fn generate() -> Vec<(String, String)> {
     [join_transcript(), share_transcript(), encrypted_transcript(), robustness_transcript(), offline_transcript()]
         .into_iter()
+        .chain(crate::wordcraft_transcripts::all())
         .map(|s| {
             let name = s.lines.first().and_then(|m| m.get("name")).and_then(Json::as_str).unwrap_or("transcript").to_string();
             (format!("{name}.jsonl"), s.text())
@@ -722,8 +753,7 @@ mod tests {
     fn every_transcript_passes_with_the_reference_app() {
         for (name, text) in generate() {
             let lines = parse(&text).unwrap();
-            let mut app = RefApp::new(Some(42));
-            if let Err(e) = replay(&lines, &mut app) {
+            if let Err(e) = replay_any(&lines, Some(42)) {
                 panic!("{name}: {e}");
             }
         }
