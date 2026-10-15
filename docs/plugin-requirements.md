@@ -29,7 +29,9 @@ checks this before starting it, explains what's missing, and offers to install i
 | `requires.features` | Names from `host.features` (`dialogs`, `open`, `events`, `document`, `push`, `collab`…) that must all be present |
 | `requires.addins[]` | Other add-ins: `id`; `version`, a range (below; default `*`); `github` (optional `owner/repo` to install it from); `optional` (default false); `why` (shown to the person, at most 200 characters) |
 
-At most 32 entries in `addins`, ranges at most 128 characters, ids as for `id`.
+At most 32 entries in `addins`, ranges at most 128 characters, ids as for `id`. A manifest that
+breaks these limits (or names an add-in twice, requires itself, has a `github` that isn't
+`owner/repo`) isn't loaded; a range that doesn't parse (or is too long) only blocks the add-in.
 
 ## Versions and ranges
 
@@ -40,8 +42,13 @@ parts. Ranges are Cargo's: comma-separated comparators that must all hold —
 - `^1.2.3` (also a bare `1.2.3`): `>=1.2.3, <2.0.0`; for 0.x, `^0.1.4` means `>=0.1.4, <0.2.0`
 - `~1.2.3`: `>=1.2.3, <1.3.0`
 - `>=`, `>`, `<=`, `<`, `=` with a full or partial version (`>=0.1` is `>=0.1.0`)
-- `*` or empty: any version
+- `*` or empty: any version (pre-releases included)
 - `1.*`, `1.2.*`: wildcards
+
+As in Cargo, `=`, `<=` and `>` with a partial version treat the missing parts as a wildcard
+(`=1.2` is `1.2.*`, `<=1.2` is `<1.3.0`, `>1.2` is `>=1.3.0`), and a pre-release version only
+matches a range with a comparator naming a pre-release of the same `MAJOR.MINOR.PATCH`
+(`>=1.0.0-rc.1`). For `requires.protocol` write `>=1.2`: `^1.2` leaves out 2.0.
 
 A range that doesn't parse makes the add-in **blocked** ("its manifest's requirement … isn't a
 version range"), never a crash.
@@ -60,11 +67,14 @@ resolves them all together:
    is turned off").
 3. **Optional add-ins** never block. The add-in starts either way and learns what's there from
    `initialize`, which gains `addins: [{id, version, enabled}]` (every installed add-in, so it
-   can adapt).
+   can adapt; `enabled` is true when it's turned on, not blocked and not failed).
 4. **Order:** required add-ins start before the add-ins that need them. A cycle blocks every
-   add-in in it ("Requirement cycle: a → b → a"). Chains deeper than 8 are blocked.
+   add-in in it ("Requirement cycle: a → b → a"). Chains deeper than 8 are blocked: an add-in
+   with more than 8 links of required add-ins below it (kind `depth`). Optional requirements
+   don't count for cycles, depth or order.
 5. **Turning off or removing** an add-in others require asks first ("Reports needs craft-vba.
-   Turn both off?"); programmatically, the dependents become blocked and the result lists them.
+   Turn both off?"); programmatically, the dependents become blocked and the result lists them
+   (`dependentsBlocked: [ids]`).
 6. **Installing or updating** an add-in whose new version falls outside a dependent's range asks
    first ("Reports needs craft-vba ^0.1.4; 0.2.0 doesn't match") or, programmatically, fails
    unless `force: true`, in which case the dependent is blocked.
@@ -78,18 +88,22 @@ dependent without restarting the app.
   install the missing or out-of-range ones that name `github`: "Reports needs craft-vba ^0.1.4
   (Runs the report macros). Install it too?". Optional ones are offered unchecked.
 - It picks **the newest release whose tag is a version in range** (tags `v0.1.5` or `0.1.5`),
-  not just the latest release, and says which one.
+  not just the latest release, and says which one. Drafts are skipped, and so are releases
+  GitHub marks as pre-releases unless the range names a pre-release; one page of the newest 100
+  releases is read.
 - The Add-ins window shows a blocked add-in with its reason and an **Install Missing** button
   when the missing add-ins name `github`.
 
 ## Commands
 
 - `plugins.list` gains, per add-in: `state` `blocked` (alongside `loaded`, `failed`,
-  `disabled`…), `blockedBy: [{id?, kind: app|protocol|feature|addin|cycle|range, need, have?, message}]`,
+  `disabled`…), `blockedBy: [{id?, kind: app|protocol|feature|addin|cycle|depth|range, need, have?, message}]`
+  (`feature` also covers an Office add-in's requirement sets and methods),
   `requires` (the manifest's), and `requiredBy` (ids of the add-ins that need it).
 - `plugins.requirements {id}` → `{id, satisfied, tree: [{id, need, have, state, optional, children}]}`.
 - `plugins.install {github, …}` gains `withRequirements` (default true from the UI, false
   programmatically: then the result lists `missing` for the caller to install) and `force`.
+  `missing` is `[{id, name, version, github?, optional, why, installed?}]` (optional ones too).
 - `plugins.installMissing {id}` installs the missing required add-ins that name `github`.
 
 ## Office add-ins
