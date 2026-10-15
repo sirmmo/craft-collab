@@ -92,7 +92,16 @@ Each peer's awareness state is `{user: {id, name, color}, cursor?, selection?}`:
 - `cursor`: `{sheet: <sheetId>, cell: [rowId, colId]}`, the active cell, when it isn't the first
   range's corner.
 
-Ids past the end of `rows`/`cols` can't be named: a selection there is clamped to the last id.
+Rows and columns past the end of `rows`/`cols` (all of them on a sheet with no ids yet) are
+named by the block id they would get if the sheet grew to them now: the `k`-th position past the
+end (counting from 0) is `~<n + k div 64>.<k mod 64>`, where `n` is the next block number (the
+larger of `rowBlocks`/`colBlocks` and one more than the highest block number present, as in
+"Ids"). Naming them never writes to the document. A reader resolves an id it has in the array to
+its position; a block id it doesn't have, numbered `n` or above by its own count, to the position
+that block id would get, `length + (block - n) × 64 + index`; anything else (an index of 64 or
+more, a block numbered below `n` that isn't there, a position past the last row or column) names
+no cell, and the range is left out. When the sheet then grows, the same ids name the same rows
+and columns. For example, on a sheet with no ids, rows 2 to 71 are `~0.1` to `~1.6`.
 
 ## The model the transcripts compare
 
