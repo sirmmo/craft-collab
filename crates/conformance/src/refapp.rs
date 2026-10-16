@@ -13,6 +13,7 @@ use yrs::updates::encoder::Encode;
 use yrs::{Doc, ReadTxn, StateVector, Transact, TransactionMut, Update};
 
 use crate::awareness::{self, Entry};
+use crate::chat::{self, Message};
 use crate::crypto;
 use crate::gridcraft::{GridCraft, Ids};
 use crate::schema::Schema;
@@ -44,7 +45,15 @@ pub struct RefApp<S: Schema = GridCraft> {
     pub applied: u32,
     /// The view: active sheet, selection.
     pub view: S::View,
+    /// The app's own user, the author of chat messages outside a room.
+    pub local_user: Json,
+    /// What the last command returned (`chat.send` → `{id}`, `chat.list`, `chat.clear`).
+    pub last_result: Json,
+    /// Chat message times: `None` is the system clock, `Some(t)` a clock that starts at `t` and
+    /// ticks a second per message (deterministic tests).
+    pub clock: Option<i64>,
     ids: Ids,
+    chat_ids: Ids,
     nonces: Ids,
     awareness_clock: u64,
 }
@@ -75,7 +84,11 @@ impl<S: Schema> RefApp<S> {
             snapshot_models: Vec::new(),
             applied: 0,
             view: S::View::default(),
+            local_user: json!({"id": "u-local", "name": "Local User", "color": "#2E8B57"}),
+            last_result: Json::Null,
+            clock: None,
             ids: Ids::seeded(seed ^ 0x5151),
+            chat_ids: Ids::seeded(seed ^ 0xC4A7),
             nonces: Ids::seeded(seed ^ 0xA0A0),
             awareness_clock: 0,
         };
@@ -160,8 +173,11 @@ impl<S: Schema> RefApp<S> {
         let old = std::mem::replace(&mut self.doc, S::new_doc(self.client_id));
         let share = mode == "share";
         if share {
+            // The file's chat goes into the room with the document, in the same transaction.
+            let chat = chat::read(&old.transact());
             let mut t = self.doc.transact_mut_with("seed");
             S::seed(&mut t, &model, &mut self.ids);
+            chat::seed(&mut t, &chat);
         } else {
             self.joining = true;
         }
@@ -298,8 +314,12 @@ impl<S: Schema> RefApp<S> {
     /// [`Schema::view_command`]s and [`Schema::edit`]s, and `collab.join`); in a room, the
     /// `collab/update` it sends.
     pub fn run(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String> {
+        self.last_result = Json::Null;
         if command == "collab.join" {
             return self.join(params);
+        }
+        if command.starts_with("chat.") {
+            return self.chat_command(command, params);
         }
         let viewed = {
             let t = self.doc.transact();
@@ -320,12 +340,80 @@ impl<S: Schema> RefApp<S> {
         };
         self.ids = ids;
         self.view = view;
+        Ok(self.send_update(update))
+    }
+
+    /// The `collab/update` for a local transaction, when in a room and it changed something.
+    fn send_update(&mut self, update: Vec<u8>) -> Vec<Json> {
         if self.room.is_none() || update.len() <= 2 {
-            return Ok(Vec::new());
+            return Vec::new();
         }
         self.sent.push(update.clone());
         let u = self.wire("collab/update", &update);
-        Ok(vec![json!({"jsonrpc": "2.0", "method": "collab/update", "params": {"room": self.room, "update": u}})])
+        vec![json!({"jsonrpc": "2.0", "method": "collab/update", "params": {"room": self.room, "update": u}})]
+    }
+
+    fn now(&mut self) -> i64 {
+        match self.clock.as_mut() {
+            Some(t) => {
+                *t += 1000;
+                *t
+            }
+            None => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
+        }
+    }
+
+    /// Who writes chat messages: the room's `user`, or the app's own outside a room.
+    fn author(&self) -> chat::Author {
+        let user = if self.room.is_some() { &self.user } else { &self.local_user };
+        chat::Author::from_json(user).unwrap_or_else(|| chat::Author { id: "u-local".into(), name: "Local User".into(), color: "#2E8B57".into() })
+    }
+
+    /// The chat commands (`docs/chat.md`): `chat.send {text, replyTo?}` → `{id}`,
+    /// `chat.edit {id, text}`, `chat.delete {id}` (the author only), `chat.clear` → `{removed}`,
+    /// `chat.list {since?, limit?}`. Each change is one transaction (origin `chat`: not undoable).
+    fn chat_command(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String> {
+        let text = |k: &str| params.get(k).and_then(Json::as_str).map(str::to_string);
+        if command == "chat.list" {
+            self.last_result = chat::list(&chat::of(&self.doc), params);
+            return Ok(Vec::new());
+        }
+        if self.joining {
+            return Err(format!("the {} is read-only until the room's state arrives", S::DOCUMENT));
+        }
+        let author = self.author();
+        let at = self.now();
+        let id = loop {
+            let id = self.chat_ids.next_id();
+            if !chat::of(&self.doc).messages.iter().any(|m| m.id == id) {
+                break id;
+            }
+        };
+        let update = {
+            let mut t = self.doc.transact_mut_with("chat");
+            match command {
+                "chat.send" => {
+                    let m =
+                        Message { id: id.clone(), author, at, text: Some(text("text").unwrap_or_default()), reply_to: text("replyTo"), ..Message::default() };
+                    chat::send(&mut t, &m)?;
+                    self.last_result = json!({"id": id});
+                }
+                "chat.edit" => chat::edit(&mut t, &text("id").unwrap_or_default(), &author.id, &text("text").unwrap_or_default(), at)?,
+                "chat.delete" => chat::delete(&mut t, &text("id").unwrap_or_default(), &author.id)?,
+                "chat.clear" => {
+                    let removed = chat::clear(&mut t, at);
+                    self.last_result = json!({"removed": removed});
+                }
+                other => return Err(format!("unknown command {other}")),
+            }
+            t.encode_update_v1()
+        };
+        Ok(self.send_update(update))
+    }
+
+    /// Who's typing in the chat (the others' awareness with `typing: true`).
+    pub fn typing(&self) -> Vec<String> {
+        chat::typing(self.awareness.values())
     }
 
     /// An awareness update with this app's user and a selection.

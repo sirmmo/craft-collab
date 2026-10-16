@@ -7,6 +7,8 @@
 //!   replayed against the reference app of each transcript's app ([`transcript::App`] is what an
 //!   app's own engine implements to replay them); [`deck_transcripts`] and
 //!   `wordcraft_transcripts` write the `deckcraft-1-*` and `wordcraft-1-*` ones.
+//! - [`chat`]: document chat (`docs/chat.md`), the same in every schema; `chat_transcripts`
+//!   writes the `<app>-1-chat*` transcripts.
 //! - [`refapp`]: the reference app both use, for any [`schema::Schema`] (GridCraft, DeckCraft,
 //!   WordCraft).
 //! - [`gridcraft`]: GridCraft schema 1, reader and writer (`docs/schemas/gridcraft-1.md`).
@@ -17,6 +19,8 @@
 #![forbid(unsafe_code)]
 
 pub mod awareness;
+pub mod chat;
+mod chat_transcripts;
 pub mod crypto;
 pub mod deck_transcripts;
 pub mod deckcraft;

@@ -14,10 +14,11 @@ three apps, and a room can be end-to-end encrypted.
 | [docs/schemas/gridcraft-1.md](docs/schemas/gridcraft-1.md) | GridCraft's shared workbook (schema 1): roots, ids, cells |
 | [docs/schemas/deckcraft-1.md](docs/schemas/deckcraft-1.md) | DeckCraft's shared presentation (schema 1): roots, ids, slides, shapes, text as Yjs text with formatting attributes, awareness |
 | [docs/schemas/wordcraft-1.md](docs/schemas/wordcraft-1.md) | WordCraft's shared document (schema 1): stories as Yjs XML, text with formatting attributes, tables, relative-position selections |
+| [docs/chat.md](docs/chat.md) | Document chat (protocol 2.1): the chat in the shared document and in the file, its commands and panel |
 | [docs/conformance.md](docs/conformance.md) | Checking a transport, and the app-side transcripts |
 | [`craft-mqtt`](crates/craft-mqtt) | Transport over any MQTT broker (Mosquitto, EMQX, HiveMQ…), end-to-end encrypted |
 | [`craft-collab-loopback`](crates/craft-collab-loopback) | Transport between app processes on one computer, for development and the apps' tests |
-| [`craft-collab-conformance`](crates/conformance) | The conformance kit: drives a transport as two and three apps would; generates and replays the transcripts in [conformance/](conformance) |
+| [`craft-collab-conformance`](crates/conformance) | The conformance kit: drives a transport as two and three apps would; generates and replays the transcripts in [conformance/](conformance) (21: five per app's schema, plus two chat transcripts per app) |
 | [`craft-collab-kit`](crates/kit) | What the transports share: the push channel over stdio, rooms, relaying, presence, snapshot compaction, dialogs |
 
 The apps implement the app side (GridCraft's, WordCraft's and DeckCraft's `docs/collab.md`); they need plugin

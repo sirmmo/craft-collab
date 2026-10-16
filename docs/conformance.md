@@ -48,12 +48,14 @@ when standard input closes. It prints one line per check and exits 1 when one fa
 |---|---|---|
 | `meta` | `name`, `app`, `schema`, `format` (1), `description` | (first line) |
 | `note` | `text` | nothing: a comment |
-| `run` | `command`, `params` | runs its own command, programmatically. `collab.join` comes with `plugin: "org.craft.conformance"`: the replayer stands in for that transport |
+| `run` | `command`, `params`, `fails?` | runs its own command, programmatically. `collab.join` comes with `plugin: "org.craft.conformance"`: the replayer stands in for that transport. A string in `params` naming a bound variable (`"$mine1"`) is replaced by its value. `fails: true`: the command must be refused (an error, nothing sent) |
 | `in` | `msg`, `valid?` | receives `msg` from the transport (a notification, or a request with `id`). `valid: false` marks input it must drop |
-| `out` | `msg` (a pattern), `decodesTo?`, `optional?` | must have sent a matching message since the last `out` |
+| `out` | `msg` (a pattern), `decodesTo?`, `chatDecodesTo?`, `optional?` | must have sent a matching message since the last `out` |
 | `quiet` | | must have sent nothing since the last `out` but the messages below |
 | `model` | `model` | must hold this document now |
 | `notice` | `contains`, `lang` | must have shown a status message containing this text (English UI) |
+| `chat` | `chat` (a pattern) | must hold this chat now ([chat.md](chat.md)) |
+| `typing` | `names` | must show these people (any order) as typing in the chat |
 
 **Matching `out`.** The app's messages are taken in order. Between two expected ones it may send
 any number of `collab/awareness`, `collab/sync1` and `host/log` messages; anything else must match
@@ -67,7 +69,17 @@ the first value it meets, the app's client id in `collab/joined`, and equal afte
 `in` lines so far (but those marked `valid: false`) and every update the app has sent (`sync2`,
 `update`, `collab/snapshot` answers), decrypting with the room key from `collab.join` and the
 method name of section 4 (`collab/snapshot` for a snapshot answer and for `sync2` with
-`snapshot: true`). The resulting document must read as this model.
+`snapshot: true`). The resulting document must read as this model. **`chatDecodesTo`** is the
+same for the chat: the document's `chat` and `chatMeta`, read as [chat.md](chat.md) says, must
+match this pattern.
+
+**Chats.** `{"clearedAt"?, "messages": [{"id", "author": {"id", "name", "color"}, "at", "text"?,
+"replyTo"?, "edited"?, "deleted"?}]}`, the same for every app (the file part's JSON without
+`version`). `chat` and `chatDecodesTo` are patterns, as for `out`: ids and times the app makes up
+are `"$mine1"` (bound the first time, then equal, and usable in later `run` params) and
+`"$int"`, and optional keys a message must not have are `"$absent"`. An app implements
+`App::chat_json` (the chat in this form) and `App::typing` (the names it shows typing); the
+defaults say it has no chat, so it fails the chat transcripts and passes the others.
 
 **Models.** `{"title", "sheets": [{"name", "cells": {"A1": "input"}}]}` for GridCraft schema 1
 ([schemas/gridcraft-1.md](schemas/gridcraft-1.md#the-model-the-transcripts-compare)).
@@ -89,6 +101,8 @@ replays the transcripts with its own engine:
   `shape.setBounds {ids?, x, y, w, h}`, `edit.select {ids}`, `text.edit {id?, at?}` (edits a
   shape's text, the caret at `[paragraph, char]` or at the end), `text.select {anchor, caret}`,
   `text.insert {text}`; shape ids are numbers.
+- Every app: `chat.send {text, replyTo?}`, `chat.edit {id, text}`, `chat.delete {id}`,
+  `chat.clear`, `chat.list {since?, limit?}` ([chat.md](chat.md#commands)).
 - WordCraft: `select.text {text}` (selects the first match in the body), `caret.set {pos: {story:
   "body", path, off}}` (a caret at byte `off` of the paragraph at block path `path`),
   `text.insert {text}` (replaces the selection; the text takes the formatting of the character
@@ -111,10 +125,19 @@ replays the transcripts with its own engine:
 | `wordcraft-1-encrypted` | a keyed room, as `gridcraft-1-encrypted` |
 | `wordcraft-1-robustness` | as `gridcraft-1-robustness`, with a GridCraft document ("This room is for gridcraft 1") |
 | `wordcraft-1-offline` | offline and back with both people typing in one paragraph meanwhile, twice at the same place: the edits merge character by character, the lower client id's text first |
+| `gridcraft-1-chat`, `deckcraft-1-chat`, `wordcraft-1-chat` | document chat ([chat.md](chat.md)), the same in each app: the room's chat arriving with the document on join; a message from the peer (two lines and a link); the app's message sent while two others (client ids 2 and 2^53−2) send theirs: all converge to one order (the low one before the app's, the high one after), and answering the high one's `sync1` gives it the same; a reply (`replyTo`); edit and delete by the author only (someone else's message, an unknown id, editing a deleted message: refused); empty and 4,001-unit text refused; the peer editing and deleting its own; malformed entries ignored (not a map, a bad id, an author that isn't JSON or has no name, `at` as text or negative, no text, empty text, too long, a duplicated id); `typing` in awareness; clearing (`clearedAt`), then new messages |
+| `gridcraft-1-chat-share`, `deckcraft-1-chat-share`, `wordcraft-1-chat-share` | chat in an encrypted room: a message sent before sharing (by the app's own user, nothing sent) seeds the room with the document, in the stored snapshot; the peer's message and typing arrive encrypted; the app's message goes out encrypted; answering `sync1`; after leaving, the chat stays and a new message isn't sent |
+
+The 10,000-message limit isn't in a transcript (a chat at the limit is over a megabyte of
+updates): `chat::tests::the_limit` checks it in the reference implementation, readers keeping
+the first 10,000 valid messages and `chat.send` refusing the next with "The chat is full: clear
+it to go on", and each app checks its own in its tests. Likewise the file part's JSON
+(`Chat::to_part` and `Chat::from_json`, with its malformed cases) has unit tests here, and each
+app tests its own round trip.
 
 The replayer in this repository (`craft-collab-conformance transcripts`) runs them against the
 reference app (`refapp.rs`, for each app's schema: `gridcraft.rs`, `deckcraft.rs`,
-`wordcraft.rs`, which emulate the apps' commands), picked by the `meta` line's `app`; an app
+`wordcraft.rs`, which emulate the apps' commands, with the chat of `chat.rs` for all three), picked by the `meta` line's `app`; an app
 replays them with its own engine (`run` → its commands, `in` → its collab inbox, `out` ← its
 outbox, `model` ← its document), in Rust by implementing `transcript::App`. Regenerate them after
 changing the generator with `cargo run -p craft-collab-conformance -- generate conformance`

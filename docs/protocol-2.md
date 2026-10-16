@@ -1,6 +1,6 @@
 # Craft plugin protocol 2: the push channel and co-editing
 
-Version 2.0.1, 2026-10-15. Shared by GridCraft, WordCraft and DeckCraft and by every transport
+Version 2.1, 2026-10-16. Shared by GridCraft, WordCraft and DeckCraft and by every transport
 plugin. It adds to protocols 1, 1.1 and 1.2 (each app's `docs/plugins.md`;
 [host-protocol-1.2.md](https://github.com/sirmmo/craft-nextcloud/blob/main/docs/host-protocol-1.2.md))
 and changes nothing in them.
@@ -152,6 +152,9 @@ per-app layout is specified in the app's `docs/collab.md`; it follows these rule
   deterministic.
 - **Text is Yjs text** with formatting as attributes (WordCraft stories, shape text, cell rich
   text); other properties are last-writer-wins entries in maps.
+- **Document chat** (2.1): every app's document also has the root array `chat` and the root map
+  `chatMeta`, the same in all three, for the people's messages about the document; the chat is
+  saved in the file too, and awareness may carry `typing`. Normative in [chat.md](chat.md).
 - **Selections in awareness** use the app's ids: GridCraft `{sheet, ranges: [[rowId, colId, rowId, colId]]}`,
   WordCraft relative positions (Yjs `RelativePosition`, base64) for anchor and focus,
   DeckCraft `{slide, shapes: [ids]}` plus a text relative position when editing text.
@@ -259,6 +262,7 @@ command sequences on two peers converge to the same document.
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-16 | 2.1 | Document chat ([chat.md](chat.md)): the common roots `chat` and `chatMeta` in every app's document, the file part `/craft/chat.json`, the `chat.*` commands, awareness `typing`; chat transcripts for each app's schema in the conformance kit. Nothing in 2.0 changes: a 2.0 app ignores the chat roots |
 | 2026-10-15 | 2.0.1 | DeckCraft's outline row: shape text is Yjs text with formatting attributes (a Yjs XML fragment was the first idea), and the `presentation` and `media` roots; normative in [schemas/deckcraft-1.md](schemas/deckcraft-1.md) |
 | 2026-10-15 | 2.0.1 | Clarifications found while building craft-collab, no change of intent: a line may be 64 MiB (a 16 MiB update doesn't fit 16 MiB in base64); relayed messages carry `from`, so a `sync2` answer can be addressed; an app answers a `sync1` and asks back with its own when the asker has changes it lacks, and sends `sync1` when the transport reports `online` after another state; a stored snapshot reaches the app as `sync2` with `snapshot: true`, and a room's whole state is encrypted with the method name `collab/snapshot`; `peers` are the others; the transport never stores or sends the key; readers keep the first of a duplicated id; the MQTT binding's room id (`mqtt:<name>`), invitation link and snapshot timing; the conformance checker's conventions |
 | 2026-10-15 | 2.0 | Created: the push channel, rooms, `collab/*` messages, end-to-end encryption, the shared documents, MQTT and y-websocket bindings, conformance |

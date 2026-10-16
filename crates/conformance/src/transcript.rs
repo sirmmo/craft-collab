@@ -32,6 +32,16 @@ pub trait App {
     fn model_json(&self) -> Result<Json, String>;
     /// What it showed in its status bar.
     fn notices(&self) -> Vec<String>;
+    /// The document's chat as the transcripts' `chat` lines describe it (`docs/chat.md`):
+    /// `{clearedAt?, messages: [{id, author: {id, name, color}, at, text?, replyTo?, edited?,
+    /// deleted?}]}`. Apps without chat keep the default, and fail the chat transcripts.
+    fn chat_json(&self) -> Result<Json, String> {
+        Err("this app has no document chat".into())
+    }
+    /// The names of the people it shows as typing in the chat.
+    fn typing(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 impl<S: Schema> App for RefApp<S> {
@@ -46,6 +56,12 @@ impl<S: Schema> App for RefApp<S> {
     }
     fn notices(&self) -> Vec<String> {
         self.notices.clone()
+    }
+    fn chat_json(&self) -> Result<Json, String> {
+        Ok(crate::chat::of(&self.doc).to_json())
+    }
+    fn typing(&self) -> Vec<String> {
+        RefApp::typing(self)
     }
 }
 
@@ -180,6 +196,17 @@ fn update_of(msg: &Json, key: Option<&[u8; 32]>, room: &str) -> Option<Vec<u8>> 
     }
 }
 
+/// `run` params with every string that names a bound variable (`"$mine1"`, bound by a `chat`
+/// line) replaced by its value.
+fn substitute(params: &Json, vars: &HashMap<String, Json>) -> Json {
+    match params {
+        Json::String(s) if s.starts_with('$') => vars.get(s).cloned().unwrap_or_else(|| params.clone()),
+        Json::Array(a) => Json::Array(a.iter().map(|v| substitute(v, vars)).collect()),
+        Json::Object(o) => Json::Object(o.iter().map(|(k, v)| (k.clone(), substitute(v, vars))).collect()),
+        _ => params.clone(),
+    }
+}
+
 /// Replays a transcript against an app (the reference app: [`replay_reference`]). The schema the
 /// models are compared in is the transcript's (its `meta` line). `Err` names the failing line.
 pub fn replay(lines: &[Json], app: &mut dyn App) -> Result<(), String> {
@@ -198,12 +225,18 @@ pub fn replay(lines: &[Json], app: &mut dyn App) -> Result<(), String> {
             "meta" | "note" => {}
             "run" => {
                 let command = line.get("command").and_then(Json::as_str).ok_or_else(|| at("run needs `command`".into()))?;
-                let params = line.get("params").cloned().unwrap_or_else(|| json!({}));
+                let params = substitute(&line.get("params").cloned().unwrap_or_else(|| json!({})), &vars);
                 if command == "collab.join" {
                     room = params.get("room").and_then(Json::as_str).unwrap_or("").to_string();
                     key = params.get("key").and_then(Json::as_str).and_then(b64::decode).and_then(|k| <[u8; 32]>::try_from(k.as_slice()).ok());
                 }
-                sent = app.run(command, &params).map_err(|e| at(format!("{command} failed: {e}")))?;
+                if line.get("fails").and_then(Json::as_bool) == Some(true) {
+                    if app.run(command, &params).is_ok() {
+                        return Err(at(format!("{command} {params} should have been refused")));
+                    }
+                } else {
+                    sent = app.run(command, &params).map_err(|e| at(format!("{command} failed: {e}")))?;
+                }
             }
             "in" => {
                 let msg = line.get("msg").ok_or_else(|| at("in needs `msg`".into()))?;
@@ -238,6 +271,11 @@ pub fn replay(lines: &[Json], app: &mut dyn App) -> Result<(), String> {
                 if !found && !optional {
                     return Err(at(format!("the app didn't send {pattern}")));
                 }
+                if found && let Some(expected) = line.get("chatDecodesTo") {
+                    let all: Vec<Vec<u8>> = peer.iter().chain(mine.iter()).cloned().collect();
+                    let got = crate::chat::read_updates(&all).map_err(at)?.to_json();
+                    matches(expected, Some(&got), &mut vars).map_err(|e| at(format!("a peer would see the chat {got}: {e}")))?;
+                }
                 if found && let Some(expected) = line.get("decodesTo") {
                     let expected = (kind.canonical)(expected).map_err(at)?;
                     let all: Vec<Vec<u8>> = peer.iter().chain(mine.iter()).cloned().collect();
@@ -258,6 +296,20 @@ pub fn replay(lines: &[Json], app: &mut dyn App) -> Result<(), String> {
                 let got = (kind.canonical)(&app.model_json().map_err(at)?).map_err(at)?;
                 if got != expected {
                     return Err(at(format!("the app has {got}, expected {expected}")));
+                }
+            }
+            "chat" => {
+                let got = app.chat_json().map_err(at)?;
+                matches(line.get("chat").unwrap_or(&Json::Null), Some(&got), &mut vars).map_err(|e| at(format!("the app's chat is {got}: {e}")))?;
+            }
+            "typing" => {
+                let mut expected: Vec<String> =
+                    line.get("names").and_then(Json::as_array).map(|a| a.iter().filter_map(Json::as_str).map(str::to_string).collect()).unwrap_or_default();
+                expected.sort();
+                let mut got = app.typing();
+                got.sort();
+                if got != expected {
+                    return Err(at(format!("the app shows {got:?} typing, expected {expected:?}")));
                 }
             }
             "notice" => {
@@ -795,6 +847,10 @@ pub fn generate() -> Vec<(String, String)> {
         })
         .collect();
     out.extend(crate::deck_transcripts::generate());
+    out.extend(crate::chat_transcripts::all().into_iter().map(|s| {
+        let name = s.lines.first().and_then(|m| m.get("name")).and_then(Json::as_str).unwrap_or("transcript").to_string();
+        (format!("{name}.jsonl"), s.text())
+    }));
     out
 }
 
