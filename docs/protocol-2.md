@@ -4,6 +4,8 @@ Version 2.1, 2026-10-16. Shared by GridCraft, WordCraft and DeckCraft and by eve
 plugin. It adds to protocols 1, 1.1 and 1.2 (each app's `docs/plugins.md`;
 [host-protocol-1.2.md](https://github.com/sirmmo/craft-nextcloud/blob/main/docs/host-protocol-1.2.md))
 and changes nothing in them.
+Protocol 2.2 (document ids, multi-line fields, literal text, GridCraft's function additions) is
+in [protocol-2.2.md](protocol-2.2.md).
 
 Co-editing is **native**: each app merges edits itself, shows who's there, and keeps per-user
 undo. **Transports are plugins**: they move opaque bytes between the people in a room and know
@@ -262,6 +264,7 @@ command sequences on two peers converge to the same document.
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-16 | 2.2 | Pointer to [protocol-2.2.md](protocol-2.2.md) (document ids, multi-line fields, literal text, GridCraft's function additions); nothing in 2.0 or 2.1 changes |
 | 2026-10-16 | 2.1 | Document chat ([chat.md](chat.md)): the common roots `chat` and `chatMeta` in every app's document, the file part `/craft/chat.json`, the `chat.*` commands, awareness `typing`; chat transcripts for each app's schema in the conformance kit. Nothing in 2.0 changes: a 2.0 app ignores the chat roots |
 | 2026-10-15 | 2.0.1 | DeckCraft's outline row: shape text is Yjs text with formatting attributes (a Yjs XML fragment was the first idea), and the `presentation` and `media` roots; normative in [schemas/deckcraft-1.md](schemas/deckcraft-1.md) |
 | 2026-10-15 | 2.0.1 | Clarifications found while building craft-collab, no change of intent: a line may be 64 MiB (a 16 MiB update doesn't fit 16 MiB in base64); relayed messages carry `from`, so a `sync2` answer can be addressed; an app answers a `sync1` and asks back with its own when the asker has changes it lacks, and sends `sync1` when the transport reports `online` after another state; a stored snapshot reaches the app as `sync2` with `snapshot: true`, and a room's whole state is encrypted with the method name `collab/snapshot`; `peers` are the others; the transport never stores or sends the key; readers keep the first of a duplicated id; the MQTT binding's room id (`mqtt:<name>`), invitation link and snapshot timing; the conformance checker's conventions |

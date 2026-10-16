@@ -25,8 +25,8 @@ checks this before starting it, explains what's missing, and offers to install i
 | Field | Meaning |
 |---|---|
 | `requires.apps` | Per app id, the app versions the add-in works with. An app missing from the map isn't constrained. (`apps`, the top-level list of apps the add-in is for, is unchanged) |
-| `requires.protocol` | The plugin protocol versions it needs: `1.1`, `1.2`, `1.3`, `2.0`… (the app's own is in `initialize` as `host.protocol`, a new field, e.g. `"2.0"`) |
-| `requires.features` | Names from `host.features` (`dialogs`, `open`, `events`, `document`, `push`, `collab`…) that must all be present |
+| `requires.protocol` | The plugin protocol versions it needs: `1.1`, `1.2`, `1.3`, `2.0`, `2.2`… (the app's own is in `initialize` as `host.protocol`, a new field, e.g. `"2.0"`) |
+| `requires.features` | Names from `host.features` (`dialogs`, `open`, `events`, `document`, `push`, `collab`; protocol 2.2: `multiline`, `literalValues`, and GridCraft's `functionDocument`, `openedBeforeCalc`, `emptyResult`, `invalidate`, see [protocol-2.2.md](protocol-2.2.md)) that must all be present |
 | `requires.addins[]` | Other add-ins: `id`; `version`, a range (below; default `*`); `github` (optional `owner/repo` to install it from); `optional` (default false); `why` (shown to the person, at most 200 characters) |
 
 At most 32 entries in `addins`, ranges at most 128 characters, ids as for `id`. A manifest that

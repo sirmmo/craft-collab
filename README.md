@@ -15,6 +15,7 @@ three apps, and a room can be end-to-end encrypted.
 | [docs/schemas/deckcraft-1.md](docs/schemas/deckcraft-1.md) | DeckCraft's shared presentation (schema 1): roots, ids, slides, shapes, text as Yjs text with formatting attributes, awareness |
 | [docs/schemas/wordcraft-1.md](docs/schemas/wordcraft-1.md) | WordCraft's shared document (schema 1): stories as Yjs XML, text with formatting attributes, tables, relative-position selections |
 | [docs/chat.md](docs/chat.md) | Document chat (protocol 2.1): the chat in the shared document and in the file, its commands and panel |
+| [docs/protocol-2.2.md](docs/protocol-2.2.md) | **Plugin protocol 2.2**: documents carry an id, multi-line form fields, literal text, and GridCraft's functions that know their workbook; which app has what. Normative |
 | [docs/conformance.md](docs/conformance.md) | Checking a transport, and the app-side transcripts |
 | [`craft-mqtt`](crates/craft-mqtt) | Transport over any MQTT broker (Mosquitto, EMQX, HiveMQ…), end-to-end encrypted |
 | [`craft-collab-loopback`](crates/craft-collab-loopback) | Transport between app processes on one computer, for development and the apps' tests |
