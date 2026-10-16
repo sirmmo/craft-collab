@@ -102,7 +102,7 @@ replays the transcripts with its own engine:
   shape's text, the caret at `[paragraph, char]` or at the end), `text.select {anchor, caret}`,
   `text.insert {text}`; shape ids are numbers.
 - Every app: `chat.send {text, replyTo?}`, `chat.edit {id, text}`, `chat.delete {id}`,
-  `chat.clear`, `chat.list {since?, limit?}` ([chat.md](chat.md#commands)).
+  `chat.clear`, `chat.list {since?, limit?}`, `chat.typing {typing}` ([chat.md](chat.md#commands)).
 - WordCraft: `select.text {text}` (selects the first match in the body), `caret.set {pos: {story:
   "body", path, off}}` (a caret at byte `off` of the paragraph at block path `path`),
   `text.insert {text}` (replaces the selection; the text takes the formatting of the character

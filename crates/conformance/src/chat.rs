@@ -357,10 +357,20 @@ pub fn clear(txn: &mut TransactionMut, at: i64) -> usize {
 }
 
 /// `chat.list {since?, limit?}`: the messages after the one with id `since` (all without it),
-/// the newest `limit` of them; `{messages, clearedAt?, count}` with `count` every message.
+/// or sent after `since` when it's a number (milliseconds), the newest `limit` of them;
+/// `{messages, clearedAt?, count}` with `count` every message.
 pub fn list(chat: &Chat, params: &Json) -> Json {
-    let start = params.get("since").and_then(Json::as_str).and_then(|id| chat.messages.iter().position(|m| m.id == id)).map(|i| i + 1).unwrap_or(0);
-    let after = chat.messages.get(start..).unwrap_or_default();
+    let by_time: Vec<Message>;
+    let after: &[Message] = match params.get("since").and_then(Json::as_f64) {
+        Some(ms) => {
+            by_time = chat.messages.iter().filter(|m| m.at as f64 > ms).cloned().collect();
+            &by_time
+        }
+        None => {
+            let start = params.get("since").and_then(Json::as_str).and_then(|id| chat.messages.iter().position(|m| m.id == id)).map(|i| i + 1).unwrap_or(0);
+            chat.messages.get(start..).unwrap_or_default()
+        }
+    };
     let limit = params.get("limit").and_then(Json::as_u64).map(|l| l as usize).unwrap_or(usize::MAX);
     let from = after.len().saturating_sub(limit);
     let mut j = json!({"messages": after.get(from..).unwrap_or_default().iter().map(Message::to_json).collect::<Vec<_>>(), "count": chat.messages.len()});
@@ -479,5 +489,7 @@ mod tests {
         assert_eq!(l["messages"].as_array().unwrap().len(), 1);
         assert_eq!(l["messages"][0]["id"], "cccccccc");
         assert_eq!(list(&c, &json!({}))["messages"].as_array().unwrap().len(), 3);
+        assert_eq!(list(&c, &json!({"since": 1_759_999_999_999i64}))["messages"].as_array().unwrap().len(), 3);
+        assert_eq!(list(&c, &json!({"since": 1_760_000_000_000i64}))["messages"].as_array().unwrap().len(), 0);
     }
 }

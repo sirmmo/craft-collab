@@ -67,7 +67,8 @@ The chat is saved with the document, so it outlives the live session:
 Everything is a command:
 
 - `chat.list {since?, limit?}` → `{messages: [...], clearedAt?, count}` (newest last): the
-  messages after the one whose `id` is `since` (all of them without it, or when it's gone), the
+  messages after the one whose `id` is `since` (all of them without it, or when it's gone), or,
+  when `since` is a number, the messages sent after that time (milliseconds, their `at`); the
   newest `limit` of those; `count` is the number of messages in the chat.
 - `chat.send {text, replyTo?}` → `{id}`.
 - `chat.edit {id, text}`: the author only (the author's `id` is compared), not a deleted message.
@@ -76,6 +77,8 @@ Everything is a command:
   the chat, someone else's message, a full chat.
 - `chat.clear` → `{removed}`: removes every message. The UI asks first ("Remove the whole chat
   from the document for everyone?"); programmatic calls don't ask.
+- `chat.typing {typing: bool}`: sets this person's awareness `typing` flag (the panel's box does
+  it while someone writes; sending a message clears it); nothing outside a session.
 - `chat.export {format?: "text"|"json"}` → the chat as text or JSON, for copying elsewhere.
 - `view.chat` (UI): shows or hides the panel.
 
@@ -104,5 +107,6 @@ tests its own limit and its file round trip.
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-10-16 | 1.0 | From the first implementations (DeckCraft, GridCraft): `chat.typing {typing}` sets the awareness `typing` flag; `chat.list`'s `since` may be a time in milliseconds as well as a message id |
 | 2026-10-16 | 1.0 | Wording made precise with the reference implementation (no change of intent): what makes an entry malformed (the `id` format too), the first 10,000 valid messages kept, a deleted message still counting toward the limit, `chat.list`'s `since` as a message id, what the commands refuse, `typing: false` |
 | 2026-10-16 | 1.0 | Created |

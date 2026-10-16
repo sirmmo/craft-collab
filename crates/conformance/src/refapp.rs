@@ -47,6 +47,8 @@ pub struct RefApp<S: Schema = GridCraft> {
     pub view: S::View,
     /// The app's own user, the author of chat messages outside a room.
     pub local_user: Json,
+    /// Typing in the chat (`chat.typing`): the next awareness state carries `typing: true`.
+    pub typing: bool,
     /// What the last command returned (`chat.send` → `{id}`, `chat.list`, `chat.clear`).
     pub last_result: Json,
     /// Chat message times: `None` is the system clock, `Some(t)` a clock that starts at `t` and
@@ -85,6 +87,7 @@ impl<S: Schema> RefApp<S> {
             applied: 0,
             view: S::View::default(),
             local_user: json!({"id": "u-local", "name": "Local User", "color": "#2E8B57"}),
+            typing: false,
             last_result: Json::Null,
             clock: None,
             ids: Ids::seeded(seed ^ 0x5151),
@@ -371,9 +374,14 @@ impl<S: Schema> RefApp<S> {
 
     /// The chat commands (`docs/chat.md`): `chat.send {text, replyTo?}` → `{id}`,
     /// `chat.edit {id, text}`, `chat.delete {id}` (the author only), `chat.clear` → `{removed}`,
-    /// `chat.list {since?, limit?}`. Each change is one transaction (origin `chat`: not undoable).
+    /// `chat.list {since?, limit?}`, `chat.typing {typing}`. Each change is one transaction
+    /// (origin `chat`: not undoable).
     fn chat_command(&mut self, command: &str, params: &Json) -> Result<Vec<Json>, String> {
         let text = |k: &str| params.get(k).and_then(Json::as_str).map(str::to_string);
+        if command == "chat.typing" {
+            self.typing = params.get("typing").and_then(Json::as_bool).unwrap_or(true);
+            return Ok(Vec::new());
+        }
         if command == "chat.list" {
             self.last_result = chat::list(&chat::of(&self.doc), params);
             return Ok(Vec::new());
@@ -397,6 +405,7 @@ impl<S: Schema> RefApp<S> {
                         Message { id: id.clone(), author, at, text: Some(text("text").unwrap_or_default()), reply_to: text("replyTo"), ..Message::default() };
                     chat::send(&mut t, &m)?;
                     self.last_result = json!({"id": id});
+                    self.typing = false;
                 }
                 "chat.edit" => chat::edit(&mut t, &text("id").unwrap_or_default(), &author.id, &text("text").unwrap_or_default(), at)?,
                 "chat.delete" => chat::delete(&mut t, &text("id").unwrap_or_default(), &author.id)?,
@@ -420,7 +429,10 @@ impl<S: Schema> RefApp<S> {
     pub fn awareness_message(&mut self, selection: Json) -> Option<Json> {
         self.room.as_ref()?;
         self.awareness_clock += 1;
-        let state = json!({"user": self.user, "selection": selection});
+        let mut state = json!({"user": self.user, "selection": selection});
+        if let (true, Some(o)) = (self.typing, state.as_object_mut()) {
+            o.insert("typing".into(), json!(true));
+        }
         let bytes = awareness::encode(&[Entry { client: self.client_id, clock: self.awareness_clock, state }]);
         let u = self.wire("collab/awareness", &bytes);
         Some(json!({"jsonrpc": "2.0", "method": "collab/awareness", "params": {"room": self.room, "update": u}}))
